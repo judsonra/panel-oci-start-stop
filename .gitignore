@@ -1,0 +1,37 @@
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+# Frontend build and local caches
+dist/
+node_modules/
+.angular/
+coverage/
+
+# Local environment files
+/.env
+/.env.local
+/.env.*.local
+/backend/.env
+/frontend/.env
+!/.env.example
+
+# OCI local configuration and private keys
+/oci/
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Local database and volume directories
+postgres-data/
+pgdata/
+data/
+volumes/
+docker-data/

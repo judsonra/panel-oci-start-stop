@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-oci_automation}
+      POSTGRES_USER: ${POSTGRES_USER:-oci_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-oci_password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://oci_user:oci_password@postgres:5432/oci_automation}
+      OCI_CLI_PATH: ${OCI_CLI_PATH:-oci}
+      OCI_CLI_PROFILE: ${OCI_CLI_PROFILE:-DEFAULT}
+      OCI_CONFIG_DIR: ${OCI_CONFIG_DIR:-/home/appuser/.oci}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL:-}
+      ALLOWED_GROUPS: ${ALLOWED_GROUPS:-}
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_POLL_SECONDS:-30}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:4200,http://127.0.0.1:4200}
+    depends_on:
+      - postgres
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./oci:/home/appuser/.oci:ro
+      # - ${HOME}/.oci:/home/appuser/.oci:ro
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8000/api}
+    depends_on:
+      - backend
+    ports:
+      - "4200:4200"
+    volumes:
+      - ./frontend:/workspace
+      - frontend-node-modules:/workspace/node_modules
+
+volumes:
+  postgres-data:
+  frontend-node-modules:
