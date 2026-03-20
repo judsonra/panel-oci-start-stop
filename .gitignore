@@ -30,6 +30,7 @@ id_rsa.pub
 docker-compose.override.yml
 
 # Local database and volume directories
+test.db
 postgres-data/
 pgdata/
 data/
