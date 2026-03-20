@@ -1,29 +1,35 @@
 # OCI Start/Stop Automation
 
-Aplicacao full stack para cadastro, acionamento e agendamento de instancias OCI.
+[![Português](https://img.shields.io/badge/lang-pt--br-green.svg)](README.pt-br.md)
+
+> This is the English version of the documentation. [Clique aqui para a versão em Português.](README.pt-br.md)
+
+---
+
+Full-stack application for registering, operating, and scheduling OCI instances.
 
 ## Stack
 
-- Frontend Angular + PrimeNG em layout administrativo inspirado no Sakai
-- Backend FastAPI + Uvicorn
+- Angular + PrimeNG frontend in an administrative layout inspired by Sakai
+- FastAPI + Uvicorn backend
 - PostgreSQL
-- Alembic para versionamento estrutural
-- OCI CLI executado localmente pelo backend
+- Alembic for structural versioning
+- OCI CLI executed locally by the backend
 
-## Subida local
+## Local Startup
 
-1. Ajuste as variaveis em `.env.example` ou exporte overrides no shell.
-2. Garanta que `~/.oci` do host esteja configurado.
-   O backend usa o `oci-cli` instalado na imagem Docker e espera que o diretorio montado contenha pelo menos:
+1. Adjust the variables in `.env.example` or export overrides in your shell.
+2. Make sure the host `~/.oci` directory is configured.
+   The backend uses the `oci-cli` installed in the Docker image and expects the mounted directory to contain at least:
    - `~/.oci/config`
-   - chaves/arquivos referenciados no profile configurado
-3. Suba os containers:
+   - keys/files referenced by the configured profile
+3. Start the containers:
 
 ```bash
 docker compose up --build
 ```
 
-Se o frontend falhar no build com erro de dependencia nativa do Rollup, faca uma limpeza local antes de recriar a imagem:
+If the frontend fails during build with a native Rollup dependency error, clean the local environment before rebuilding the image:
 
 ```bash
 rm -rf frontend/node_modules
@@ -31,64 +37,64 @@ docker compose build frontend --no-cache
 docker compose up --build
 ```
 
-O `docker-compose` usa um volume dedicado para `/workspace/node_modules`, evitando compartilhar dependencias do host com o container.
+The `docker-compose` setup uses a dedicated volume for `/workspace/node_modules`, preventing host dependencies from being shared with the container.
 
-Depois da migracao para a base Sakai, o container do frontend passou a validar `package.json` e `package-lock.json` na inicializacao. Quando houver mudanca de dependencias, ele executa `npm ci` automaticamente no volume `frontend-node-modules`, evitando erro por volume antigo ou incompleto.
+After the migration to the Sakai-based frontend, the frontend container now validates `package.json` and `package-lock.json` on startup. When dependencies change, it runs `npm ci` automatically inside the `frontend-node-modules` volume, avoiding failures caused by stale or incomplete volumes.
 
 ## Backend
 
-- API em `http://localhost:8000`
-- Docs OpenAPI em `http://localhost:8000/docs`
-- Health detalhado em `http://localhost:8000/api/health`
+- API: `http://localhost:8000`
+- OpenAPI docs: `http://localhost:8000/docs`
+- Detailed health endpoint: `http://localhost:8000/api/health`
 
-## OCI CLI no backend
+## OCI CLI in the Backend
 
-- O `oci-cli` e instalado dentro do container do backend pelo [backend/Dockerfile](/home/infra/Downloads/oci-start-stop/backend/Dockerfile)
-- O perfil usado e controlado por `OCI_CLI_PROFILE`
-- O executavel pode ser sobrescrito por `OCI_CLI_PATH`
-- O arquivo de configuracao e resolvido a partir de `OCI_CONFIG_DIR/config`
+- The `oci-cli` is installed inside the backend container by `backend/Dockerfile`
+- The active profile is controlled by `OCI_CLI_PROFILE`
+- The executable can be overridden by `OCI_CLI_PATH`
+- The configuration file is resolved from `OCI_CONFIG_DIR/config`
 
-Fluxo de execucao:
+Execution flow:
 
-1. O frontend envia a acao e o `instance_id`
-2. A API busca a instancia cadastrada no banco
-3. O backend resolve o `ocid`
-4. O servico `OCIService` monta o comando permitido do `oci`
-5. O comando e executado localmente no container
-6. O resultado e persistido em `execution_logs` e devolvido pela API
+1. The frontend sends the action and the `instance_id`
+2. The API looks up the registered instance in the database
+3. The backend resolves the `ocid`
+4. The `OCIService` builds the allowed `oci` command
+5. The command is executed locally inside the container
+6. The result is persisted to `execution_logs` and returned by the API
 
 ## Frontend
 
-- UI em `http://localhost:4200`
-- Base oficial do cliente em `frontend/`
-- Stack: Angular 21 + PrimeNG 21 + layout Sakai NG
-- Nesta fase nao ha tela de login; a aplicacao abre direto no shell principal
+- UI: `http://localhost:4200`
+- Official client base: `frontend/`
+- Stack: Angular 21 + PrimeNG 21 + Sakai NG layout
+- At this stage there is no login screen; the application opens directly in the main shell
 
-### Estrutura do frontend
+### Frontend Structure
 
-O repositorio mantem apenas um diretorio de frontend: [frontend](/home/infra/Downloads/oci-start-stop/frontend).
+The repository keeps only one frontend directory: `frontend/`.
 
-O diretorio temporario `sakai-ng-master` foi removido apos a migracao. A referencia futura para evolucoes visuais e componentes deve ser a documentacao oficial do Sakai/PrimeNG, nao uma copia local do template.
+The temporary `sakai-ng-master` directory was removed after the migration. Future reference for visual evolution and components should come from the official Sakai/PrimeNG documentation, not from a local copy of the template.
 
-Modulos entregues no menu lateral:
+Delivered modules in the sidebar menu:
 
 - Dashboard
-- Instancias
-- Agendamentos
-- Execucoes
+- Instances
+- Schedules
+- Executions
 
-Arquitetura principal:
+Main architecture:
 
-- `src/app/layout`: shell do Sakai adaptado para o contexto OCI
-- `src/app/core`: `ApiService` e contratos de dados
-- `src/app/pages/dashboard`: contadores e resumo operacional
-- `src/app/pages/instances`: cadastro, listagem e acoes de ligar/desligar
-- `src/app/pages/schedules`: cadastro e listagem de agendamentos
-- `src/app/pages/executions`: historico de execucoes
-- `src/assets/styles.scss`: identidade visual e ajustes do shell/layout
-- `public/app-config.js`: configuracao runtime do endpoint da API
+- `src/app/layout`: Sakai shell adapted to the OCI context
+- `src/app/core`: `ApiService` and data contracts
+- `src/app/pages/dashboard`: counters and operational overview
+- `src/app/pages/instances`: registration, listing, and start/stop actions
+- `src/app/pages/schedules`: schedule registration and listing
+- `src/app/pages/executions`: execution history
+- `src/assets/styles.scss`: visual identity and shell/layout adjustments
+- `public/app-config.js`: runtime API endpoint configuration
 
-### Desenvolvimento do frontend
+### Frontend Development
 
 ```bash
 cd frontend
@@ -96,7 +102,7 @@ npm install
 ng serve
 ```
 
-Comandos principais:
+Main commands:
 
 ```bash
 cd frontend
@@ -104,14 +110,14 @@ ng build
 ng test
 ```
 
-Observacoes:
+Notes:
 
-- o frontend consome os mesmos endpoints do backend em `/api`
-- o endpoint real do backend e resolvido em runtime por `API_BASE_URL`, exposto em `public/app-config.js`
-- o padrao de testes adotado agora e o nativo do Sakai/Angular com `ng test`
-- a integracao com Microsoft Entra ID fica como evolucao futura
+- the frontend consumes the same backend endpoints under `/api`
+- the real backend endpoint is resolved at runtime through `API_BASE_URL`, exposed in `public/app-config.js`
+- the test standard now follows the native Sakai/Angular approach with `ng test`
+- Microsoft Entra ID integration remains a future enhancement
 
-## Testes
+## Tests
 
 Backend:
 
