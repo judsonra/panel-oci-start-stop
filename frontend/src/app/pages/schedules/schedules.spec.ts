@@ -60,6 +60,18 @@ describe('SchedulesPage', () => {
         fixture.detectChanges();
     });
 
+    it('opens with the schedules tab selected', () => {
+        expect(component.activeTab()).toBe(0);
+    });
+
+    it('falls back to the schedules tab when p-tabs emits undefined', () => {
+        component.activeTab.set(1);
+
+        component.setActiveTab(undefined);
+
+        expect(component.activeTab()).toBe(0);
+    });
+
     it('loads instances and schedules on init', () => {
         expect(apiService.listInstances).toHaveBeenCalled();
         expect(apiService.listSchedules).toHaveBeenCalled();
@@ -93,7 +105,8 @@ describe('SchedulesPage', () => {
         expect(component.isOneTime()).toBeFalse();
     });
 
-    it('creates a one-time schedule with UTC start-of-day date', () => {
+    it('creates a one-time schedule with UTC start-of-day date and returns to list tab', () => {
+        component.activeTab.set(1);
         component.form.setValue({
             instance: instances[0],
             instance_id: 'instance-1',
@@ -116,6 +129,7 @@ describe('SchedulesPage', () => {
             days_of_week: null,
             time_utc: null
         });
+        expect(component.activeTab()).toBe(0);
     });
 
     it('creates a recurring schedule with selected weekdays and 24h time', () => {
@@ -146,7 +160,7 @@ describe('SchedulesPage', () => {
         });
     });
 
-    it('loads a schedule into the form for editing', () => {
+    it('loads a schedule into the form for editing and navigates to the form tab', () => {
         component.editSchedule(schedule);
 
         expect(component.editingScheduleId()).toBe('schedule-1');
@@ -154,6 +168,47 @@ describe('SchedulesPage', () => {
         expect(component.form.controls.instance_id.value).toBe('instance-1');
         expect(component.form.controls.action.value).toBe('restart');
         expect(component.form.controls.days_of_week.value).toEqual([0, 1, 2]);
+        expect(component.activeTab()).toBe(1);
+    });
+
+    it('runs the edit command from the splitbutton menu', () => {
+        const actions = component.rowMenuActions(schedule);
+
+        actions[0].command?.({ originalEvent: new MouseEvent('click'), item: actions[0] });
+
+        expect(component.editingScheduleId()).toBe('schedule-1');
+        expect(component.activeTab()).toBe(1);
+    });
+
+    it('updates the edited schedule and returns to the schedules tab', () => {
+        component.editSchedule(schedule);
+        component.form.patchValue({
+            action: 'stop',
+            enabled: false
+        });
+
+        component.save();
+
+        expect(apiService.updateSchedule).toHaveBeenCalledWith('schedule-1', {
+            instance_id: 'instance-1',
+            type: 'recurring',
+            action: 'stop',
+            enabled: false,
+            run_at_utc: null,
+            days_of_week: [0, 1, 2],
+            time_utc: '14:30'
+        });
+        expect(component.activeTab()).toBe(0);
+        expect(component.schedules()[0].enabled).toBeFalse();
+    });
+
+    it('returns to the schedules tab when cancelling an edit', () => {
+        component.editSchedule(schedule);
+
+        component.resetForm();
+
+        expect(component.editingScheduleId()).toBeNull();
+        expect(component.activeTab()).toBe(0);
     });
 
     it('toggles a schedule on or off from the splitbutton primary action', () => {
@@ -177,6 +232,15 @@ describe('SchedulesPage', () => {
         expect(confirmSpy).toHaveBeenCalled();
     });
 
+    it('runs the delete command from the splitbutton menu', () => {
+        const confirmSpy = spyOn(confirmationService, 'confirm');
+        const actions = component.rowMenuActions(schedule);
+
+        actions[1].command?.({ originalEvent: new MouseEvent('click'), item: actions[1] });
+
+        expect(confirmSpy).toHaveBeenCalled();
+    });
+
     it('deletes a schedule after confirmation', () => {
         component['deleteSchedule'](schedule);
 
@@ -188,10 +252,15 @@ describe('SchedulesPage', () => {
         expect(component.utcClockDisplay()).toMatch(/^\d{2}:\d{2}:\d{2}$/);
     });
 
-    it('renders the requested labels and actions in the template', () => {
+    it('renders the tabs and form labels in the template', () => {
+        let text = fixture.nativeElement.textContent;
+        expect(text).toContain('Agendamentos');
+        expect(text).toContain('Novo agendamento');
+
+        component.activeTab.set(1);
         component.form.controls.type.setValue('one_time');
         fixture.detectChanges();
-        let text = fixture.nativeElement.textContent;
+        text = fixture.nativeElement.textContent;
         expect(text).toContain('Instância');
         expect(text).toContain('Data');
         expect(text).toContain('Hora UTC');
@@ -199,9 +268,7 @@ describe('SchedulesPage', () => {
         component.form.controls.type.setValue('recurring');
         fixture.detectChanges();
         text = fixture.nativeElement.textContent;
-        expect(text).toContain('Instância');
         expect(text).toContain('Horário UTC');
-        expect(text).toContain('Hora UTC');
     });
 
     it('shows validation feedback when recurring schedule is missing time', () => {

@@ -36,12 +36,17 @@ export class AppMenu {
             {
                 label: 'Dashboard',
                 icon: 'pi pi-chart-bar',
-                expanded: normalizedPath === '/',
+                expanded: normalizedPath === '/' || normalizedPath.startsWith('/reports/cost-by-compartment'),
                 items: [
                     {
                         label: 'Visão Geral',
                         icon: 'pi pi-home',
                         routerLink: ['/']
+                    },
+                    {
+                        label: 'Custo/Compartimento',
+                        icon: 'pi pi-wallet',
+                        routerLink: ['/reports/cost-by-compartment']
                     }
                 ]
             },

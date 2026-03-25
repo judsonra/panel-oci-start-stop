@@ -13,6 +13,7 @@ import { MessageModule } from 'primeng/message';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { SplitButtonModule } from 'primeng/splitbutton';
 import { TableModule } from 'primeng/table';
+import { TabsModule } from 'primeng/tabs';
 import { TagModule } from 'primeng/tag';
 import { ApiService } from '@/app/core/api.service';
 import { InstanceModel, ScheduleModel } from '@/app/core/models';
@@ -40,6 +41,7 @@ interface DayOption {
         MultiSelectModule,
         SplitButtonModule,
         TableModule,
+        TabsModule,
         TagModule
     ],
     providers: [ConfirmationService],
@@ -58,124 +60,135 @@ interface DayOption {
             <p-message [severity]="feedbackSeverity()" [text]="feedback() || ''"></p-message>
         }
 
-        <section class="page-grid two-columns">
-            <form class="form-panel" [formGroup]="form" (ngSubmit)="save()">
-                @if (editingScheduleId()) {
-                    <p-message severity="info" text="Editando agendamento selecionado."></p-message>
-                }
+        <section class="instances-tabs-panel">
+            <p-tabs [value]="activeTab()" (valueChange)="setActiveTab($event)">
+                <p-tablist>
+                    <p-tab [value]="0">Agendamentos</p-tab>
+                    <p-tab [value]="1">Novo agendamento</p-tab>
+                </p-tablist>
+                <p-tabpanels>
+                    <p-tabpanel [value]="0">
+                        <div class="table-shell">
+                            <p-table [value]="schedules()" [loading]="loading()" responsiveLayout="scroll">
+                                <ng-template pTemplate="header">
+                                    <tr>
+                                        <th>Instância</th>
+                                        <th>Tipo</th>
+                                        <th>Ação</th>
+                                        <th>Execução UTC</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </ng-template>
+                                <ng-template pTemplate="body" let-schedule>
+                                    <tr>
+                                        <td>{{ schedule.instance_name || schedule.instance_id }}</td>
+                                        <td>{{ schedule.type === 'one_time' ? 'Execução única' : 'Recorrente' }}</td>
+                                        <td>{{ schedule.action | uppercase }}</td>
+                                        <td>{{ executionLabel(schedule) }}</td>
+                                        <td class="schedule-status-cell">
+                                            <p-tag [severity]="schedule.enabled ? 'success' : 'contrast'" [value]="schedule.enabled ? 'ativo' : 'inativo'"></p-tag>
+                                            <p-splitbutton
+                                                [label]="schedule.enabled ? 'Off' : 'On'"
+                                                [icon]="schedule.enabled ? 'pi pi-pause' : 'pi pi-play'"
+                                                size="small"
+                                                [model]="rowMenuActions(schedule)"
+                                                appendTo="body"
+                                                [disabled]="isRowBusy(schedule.id)"
+                                                (onClick)="toggleSchedule(schedule)"
+                                            ></p-splitbutton>
+                                        </td>
+                                    </tr>
+                                </ng-template>
+                            </p-table>
+                        </div>
+                    </p-tabpanel>
+                    <p-tabpanel [value]="1">
+                        <form class="form-panel" [formGroup]="form" (ngSubmit)="save()">
+                            @if (editingScheduleId()) {
+                                <p-message severity="info" text="Editando agendamento selecionado."></p-message>
+                            }
 
-                <label>
-                    <span>Instância</span>
-                    <p-autocomplete
-                        formControlName="instance"
-                        [suggestions]="instanceSuggestions()"
-                        optionLabel="name"
-                        [dropdown]="true"
-                        dropdownMode="blank"
-                        [completeOnFocus]="true"
-                        [showClear]="true"
-                        [forceSelection]="true"
-                        placeholder="Selecione pelo nome da instância"
-                        (completeMethod)="filterInstances($event)"
-                    />
-                </label>
+                            <label>
+                                <span>Instância</span>
+                                <p-autocomplete
+                                    formControlName="instance"
+                                    [suggestions]="instanceSuggestions()"
+                                    optionLabel="name"
+                                    [dropdown]="true"
+                                    dropdownMode="blank"
+                                    [completeOnFocus]="true"
+                                    [showClear]="true"
+                                    [forceSelection]="true"
+                                    placeholder="Selecione pelo nome da instância"
+                                    (completeMethod)="filterInstances($event)"
+                                />
+                            </label>
 
-                <label>
-                    <span>Tipo</span>
-                    <select formControlName="type" (change)="onTypeChange()">
-                        <option value="one_time">Execução única</option>
-                        <option value="recurring">Recorrente</option>
-                    </select>
-                </label>
+                            <label>
+                                <span>Tipo</span>
+                                <select formControlName="type" (change)="onTypeChange()">
+                                    <option value="one_time">Execução única</option>
+                                    <option value="recurring">Recorrente</option>
+                                </select>
+                            </label>
 
-                <label>
-                    <span>Ação</span>
-                    <select formControlName="action">
-                        <option value="start">Start</option>
-                        <option value="stop">Stop</option>
-                        <option value="restart">Restart</option>
-                    </select>
-                </label>
+                            <label>
+                                <span>Ação</span>
+                                <select formControlName="action">
+                                    <option value="start">Start</option>
+                                    <option value="stop">Stop</option>
+                                    <option value="restart">Restart</option>
+                                </select>
+                            </label>
 
-                @if (isOneTime()) {
-                    <label>
-                        <span>Data</span>
-                        <p-datepicker formControlName="run_at_utc" [showIcon]="true" appendTo="body" dateFormat="dd/mm/yy" />
-                    </label>
-                }
+                            @if (isOneTime()) {
+                                <label>
+                                    <span>Data</span>
+                                    <p-datepicker formControlName="run_at_utc" [showIcon]="true" appendTo="body" dateFormat="dd/mm/yy" />
+                                </label>
+                            }
 
-                @if (isRecurring()) {
-                    <label>
-                        <span>Dias da semana</span>
-                        <p-multiselect
-                            formControlName="days_of_week"
-                            [options]="dayOptions"
-                            optionLabel="label"
-                            optionValue="value"
-                            placeholder="Selecione os dias"
-                            appendTo="body"
-                        />
-                    </label>
-                }
+                            @if (isRecurring()) {
+                                <label>
+                                    <span>Dias da semana</span>
+                                    <p-multiselect
+                                        formControlName="days_of_week"
+                                        [options]="dayOptions"
+                                        optionLabel="label"
+                                        optionValue="value"
+                                        placeholder="Selecione os dias"
+                                        appendTo="body"
+                                    />
+                                </label>
+                            }
 
-                @if (isRecurring()) {
-                    <label>
-                        <span>Horário UTC</span>
-                        <p-datepicker formControlName="time_utc" [timeOnly]="true" hourFormat="24" appendTo="body" />
-                    </label>
-                }
+                            @if (isRecurring()) {
+                                <label>
+                                    <span>Horário UTC</span>
+                                    <p-datepicker formControlName="time_utc" [timeOnly]="true" hourFormat="24" appendTo="body" />
+                                </label>
+                            }
 
-                <div class="utc-clock-panel">
-                    <span class="utc-clock-kicker">Hora UTC</span>
-                    <strong>{{ utcClockDisplay() }}</strong>
-                </div>
+                            <div class="utc-clock-panel">
+                                <span class="utc-clock-kicker">Hora UTC</span>
+                                <strong>{{ utcClockDisplay() }}</strong>
+                            </div>
 
-                <label class="checkbox-row">
-                    <p-checkbox formControlName="enabled" [binary]="true" inputId="schedule-enabled"></p-checkbox>
-                    <span>Agendamento habilitado</span>
-                </label>
+                            <label class="checkbox-row">
+                                <p-checkbox formControlName="enabled" [binary]="true" inputId="schedule-enabled"></p-checkbox>
+                                <span>Agendamento habilitado</span>
+                            </label>
 
-                <div class="form-actions">
-                    <button pButton type="submit" label="Salvar agendamento" icon="pi pi-calendar-plus" [disabled]="saving()"></button>
-                    @if (editingScheduleId()) {
-                        <button pButton type="button" label="Cancelar edição" severity="secondary" [outlined]="true" (click)="resetForm()"></button>
-                    }
-                </div>
-            </form>
-
-            <div class="table-shell">
-                <p-table [value]="schedules()" [loading]="loading()" responsiveLayout="scroll">
-                    <ng-template pTemplate="header">
-                        <tr>
-                            <th>Instância</th>
-                            <th>Tipo</th>
-                            <th>Ação</th>
-                            <th>Execução UTC</th>
-                            <th>Status</th>
-                        </tr>
-                    </ng-template>
-                    <ng-template pTemplate="body" let-schedule>
-                        <tr>
-                            <td>{{ schedule.instance_name || schedule.instance_id }}</td>
-                            <td>{{ schedule.type === 'one_time' ? 'Execução única' : 'Recorrente' }}</td>
-                            <td>{{ schedule.action | uppercase }}</td>
-                            <td>{{ executionLabel(schedule) }}</td>
-                            <td class="schedule-status-cell">
-                                <p-tag [severity]="schedule.enabled ? 'success' : 'contrast'" [value]="schedule.enabled ? 'ativo' : 'inativo'"></p-tag>
-                                <p-splitbutton
-                                    [label]="schedule.enabled ? 'Off' : 'On'"
-                                    [icon]="schedule.enabled ? 'pi pi-pause' : 'pi pi-play'"
-                                    size="small"
-                                    [model]="rowMenuActions(schedule)"
-                                    appendTo="body"
-                                    [disabled]="isRowBusy(schedule.id)"
-                                    (onClick)="toggleSchedule(schedule)"
-                                ></p-splitbutton>
-                            </td>
-                        </tr>
-                    </ng-template>
-                </p-table>
-            </div>
+                            <div class="form-actions">
+                                <button pButton type="submit" label="Salvar agendamento" icon="pi pi-calendar-plus" [disabled]="saving()"></button>
+                                @if (editingScheduleId()) {
+                                    <button pButton type="button" label="Cancelar edição" severity="secondary" [outlined]="true" (click)="resetForm()"></button>
+                                }
+                            </div>
+                        </form>
+                    </p-tabpanel>
+                </p-tabpanels>
+            </p-tabs>
         </section>
     `
 })
@@ -194,6 +207,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
     readonly feedbackSeverity = signal<'success' | 'error'>('success');
     readonly editingScheduleId = signal<string | null>(null);
     readonly rowBusyIds = signal<Set<string>>(new Set());
+    readonly activeTab = signal(0);
     readonly currentUtcDate = signal(new Date());
     readonly utcClockDisplay = computed(() =>
         this.currentUtcDate().toLocaleTimeString('pt-BR', {
@@ -318,12 +332,13 @@ export class SchedulesPage implements OnInit, OnDestroy {
                     this.schedules.set([schedule, ...this.schedules()]);
                 }
                 this.resetForm();
+                this.activeTab.set(0);
             },
-                error: (response: { error?: { detail?: string } }) => {
-                    this.feedbackSeverity.set('error');
-                    this.feedback.set(response.error?.detail ?? 'Não foi possível salvar o agendamento.');
-                }
-            });
+            error: (response: { error?: { detail?: string } }) => {
+                this.feedbackSeverity.set('error');
+                this.feedback.set(response.error?.detail ?? 'Não foi possível salvar o agendamento.');
+            }
+        });
     }
 
     rowMenuActions(schedule: ScheduleModel): MenuItem[] {
@@ -331,12 +346,20 @@ export class SchedulesPage implements OnInit, OnDestroy {
             {
                 label: 'Editar',
                 icon: 'pi pi-pencil',
-                command: () => this.editSchedule(schedule)
+                command: (event) => {
+                    event?.originalEvent?.preventDefault?.();
+                    event?.originalEvent?.stopPropagation?.();
+                    this.editSchedule(schedule);
+                }
             },
             {
                 label: 'Excluir',
                 icon: 'pi pi-times',
-                command: () => this.confirmDelete(schedule)
+                command: (event) => {
+                    event?.originalEvent?.preventDefault?.();
+                    event?.originalEvent?.stopPropagation?.();
+                    this.confirmDelete(schedule);
+                }
             }
         ];
     }
@@ -372,6 +395,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
         });
         this.instanceSuggestions.set(this.instances());
         this.clearFeedback();
+        this.activeTab.set(1);
     }
 
     resetForm(): void {
@@ -387,6 +411,12 @@ export class SchedulesPage implements OnInit, OnDestroy {
             enabled: true
         });
         this.instanceSuggestions.set(this.instances());
+        this.activeTab.set(0);
+    }
+
+    setActiveTab(value: number | string | undefined): void {
+        const nextValue = typeof value === 'number' ? value : Number(value ?? 0);
+        this.activeTab.set(Number.isNaN(nextValue) ? 0 : nextValue);
     }
 
     toggleSchedule(schedule: ScheduleModel): void {

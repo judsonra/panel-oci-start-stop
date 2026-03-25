@@ -38,13 +38,36 @@ services:
       - ./oci:/home/appuser/.oci:ro
       # - ${HOME}/.oci:/home/appuser/.oci:ro
 
+  reports:
+    build:
+      context: ./reports
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${REPORTS_DATABASE_URL:-postgresql+psycopg://oci_user:oci_password@postgres:5432/oci_automation}
+      OCI_CLI_PATH: ${OCI_CLI_PATH:-oci}
+      OCI_CLI_PROFILE: ${OCI_CLI_PROFILE:-DEFAULT}
+      OCI_CONFIG_DIR: ${OCI_CONFIG_DIR:-/home/appuser/.oci}
+      OCI_TENANT_ID: ${REPORTS_OCI_TENANT_ID:-}
+      SUPPRESS_OCI_LABEL_WARNING: ${SUPPRESS_OCI_LABEL_WARNING:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:4200,http://127.0.0.1:4200}
+    depends_on:
+      - postgres
+    ports:
+      - "8010:8010"
+    volumes:
+      - ./reports:/app
+      - ./oci:/home/appuser/.oci:ro
+
   frontend:
     build:
       context: ./frontend
     environment:
       API_BASE_URL: ${API_BASE_URL:-http://localhost:8000/api}
+      REPORTS_API_BASE_URL: ${REPORTS_API_BASE_URL:-http://localhost:8010/api}
     depends_on:
       - backend
+      - reports
     ports:
       - "4200:4200"
     volumes:

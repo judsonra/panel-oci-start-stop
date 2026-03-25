@@ -36,6 +36,40 @@ export interface ExecutionModel {
     finished_at?: string | null;
 }
 
+export interface ReportDailyCostModel {
+    date: string;
+    amount: number;
+}
+
+export interface ReportResourceCostModel {
+    service?: string | null;
+    sku_name?: string | null;
+    resource_id?: string | null;
+    resource_name?: string | null;
+    total_amount: number;
+}
+
+export interface ReportCompartmentCostModel {
+    compartment_id?: string | null;
+    compartment_name?: string | null;
+    total_amount: number;
+    daily_costs: ReportDailyCostModel[];
+    resources: ReportResourceCostModel[];
+}
+
+export interface CostByCompartmentReportModel {
+    year: number;
+    month: number;
+    currency?: string | null;
+    source: 'cache' | 'oci';
+    sync_status: string;
+    available: boolean;
+    last_refreshed_at?: string | null;
+    total_amount: number;
+    daily_totals: ReportDailyCostModel[];
+    compartments: ReportCompartmentCostModel[];
+}
+
 export interface ApiErrorResponse {
     detail?: string;
 }

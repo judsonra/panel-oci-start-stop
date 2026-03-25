@@ -560,3 +560,31 @@ select {
         pointer-events: auto;
     }
 }
+
+.reports-overview-grid {
+    margin-bottom: 1rem;
+}
+
+.reports-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+}
+
+.reports-actions {
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
+
+.report-meta-list {
+    gap: 0.85rem;
+}
+
+.reports-stats-grid {
+    margin-bottom: 1rem;
+}
+
+.report-grid-stack,
+.report-detail-grid {
+    margin-top: 1rem;
+}

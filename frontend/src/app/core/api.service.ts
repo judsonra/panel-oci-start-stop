@@ -1,12 +1,13 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { ExecutionModel, InstanceModel, ScheduleModel } from './models';
+import { CostByCompartmentReportModel, ExecutionModel, InstanceModel, ScheduleModel } from './models';
 
 declare global {
     interface Window {
         __APP_CONFIG__?: {
             apiBaseUrl?: string;
+            reportsApiBaseUrl?: string;
         };
     }
 }
@@ -15,10 +16,16 @@ declare global {
 export class ApiService {
     private readonly http = inject(HttpClient);
     private readonly baseUrl = this.resolveBaseUrl();
+    private readonly reportsBaseUrl = this.resolveReportsBaseUrl();
 
     private resolveBaseUrl(): string {
         const configuredBaseUrl = window.__APP_CONFIG__?.apiBaseUrl?.trim();
         return configuredBaseUrl && configuredBaseUrl.length > 0 ? configuredBaseUrl : 'http://localhost:8000/api';
+    }
+
+    private resolveReportsBaseUrl(): string {
+        const configuredBaseUrl = window.__APP_CONFIG__?.reportsApiBaseUrl?.trim();
+        return configuredBaseUrl && configuredBaseUrl.length > 0 ? configuredBaseUrl : 'http://localhost:8010/api';
     }
 
     listInstances(): Observable<InstanceModel[]> {
@@ -63,5 +70,19 @@ export class ApiService {
 
     listExecutions(): Observable<ExecutionModel[]> {
         return this.http.get<ExecutionModel[]>(`${this.baseUrl}/executions`);
+    }
+
+    getCostByCompartment(year: number, month: number): Observable<CostByCompartmentReportModel> {
+        return this.http.get<CostByCompartmentReportModel>(`${this.reportsBaseUrl}/reports/cost-by-compartment`, {
+            params: { year, month }
+        });
+    }
+
+    refreshCostByCompartment(payload: { year: number; month: number }): Observable<CostByCompartmentReportModel> {
+        return this.http.post<CostByCompartmentReportModel>(`${this.reportsBaseUrl}/reports/cost-by-compartment/refresh`, payload);
+    }
+
+    getCostByCompartmentCsvUrl(year: number, month: number): string {
+        return `${this.reportsBaseUrl}/reports/cost-by-compartment.csv?year=${year}&month=${month}`;
     }
 }
