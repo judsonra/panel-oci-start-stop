@@ -123,6 +123,30 @@ select {
     border-radius: 999px;
     background: var(--app-surface);
     font-size: 0.92rem;
+    text-decoration: none;
+    transition:
+        transform 0.18s ease,
+        border-color 0.18s ease,
+        box-shadow 0.18s ease;
+}
+
+.layout-topbar-status:hover,
+.layout-topbar-status:focus-visible {
+    border-color: rgba(36, 94, 67, 0.28);
+    box-shadow: 0 12px 24px rgba(108, 77, 37, 0.08);
+    transform: translateY(-1px);
+}
+
+.layout-topbar-status:focus-visible {
+    outline: 2px solid rgba(36, 94, 67, 0.28);
+    outline-offset: 2px;
+}
+
+.layout-topbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: flex-end;
 }
 
 .status-dot {
@@ -131,6 +155,27 @@ select {
     border-radius: 50%;
     background: var(--app-success);
     box-shadow: 0 0 0 6px rgba(37, 115, 77, 0.12);
+}
+
+.layout-topbar-status-icon {
+    font-size: 0.8rem;
+    opacity: 0.72;
+}
+
+.layout-topbar-status.is-degraded .status-dot {
+    background: #d48b1f;
+    box-shadow: 0 0 0 6px rgba(212, 139, 31, 0.14);
+}
+
+.layout-topbar-status.is-offline .status-dot {
+    background: #c95656;
+    box-shadow: 0 0 0 6px rgba(201, 86, 86, 0.14);
+}
+
+@media (max-width: 768px) {
+    .layout-topbar-actions {
+        justify-content: flex-start;
+    }
 }
 
 .layout-sidebar {
