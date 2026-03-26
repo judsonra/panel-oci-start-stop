@@ -1,6 +1,10 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterModule } from '@angular/router';
+import { catchError, forkJoin, map, of, switchMap, timer } from 'rxjs';
+import { ApiService } from '@/app/core/api.service';
+import { TopbarServiceStatusModel } from '@/app/core/models';
 import { LayoutService } from '@/app/layout/service/layout.service';
 
 @Component({
@@ -21,13 +25,79 @@ import { LayoutService } from '@/app/layout/service/layout.service';
         </div>
 
         <div class="layout-topbar-actions">
-            <div class="layout-topbar-status">
-                <span class="status-dot"></span>
-                <span>Backend FastAPI + OCI CLI</span>
-            </div>
+            @for (service of services(); track service.label) {
+                <a
+                    class="layout-topbar-status"
+                    [class.is-online]="service.status === 'online'"
+                    [class.is-degraded]="service.status === 'degraded'"
+                    [class.is-offline]="service.status === 'offline'"
+                    [href]="service.docsUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    [attr.aria-label]="'Abrir documentação de ' + service.label"
+                >
+                    <span class="status-dot"></span>
+                    <span>{{ service.label }}</span>
+                    <i class="pi pi-external-link layout-topbar-status-icon" aria-hidden="true"></i>
+                </a>
+            }
         </div>
     </div>`
 })
 export class AppTopbar {
     readonly layoutService = inject(LayoutService);
+    private readonly api = inject(ApiService);
+    private readonly destroyRef = inject(DestroyRef);
+    private readonly backendLabel = 'Backend';
+    private readonly reportsLabel = 'Reports';
+    private readonly backendDocsUrl = this.api.getBackendDocsUrl();
+    private readonly reportsDocsUrl = this.api.getReportsDocsUrl();
+
+    readonly backendStatus = signal<TopbarServiceStatusModel>({
+        label: this.backendLabel,
+        status: 'offline',
+        online: false,
+        docsUrl: this.backendDocsUrl
+    });
+    readonly reportsStatus = signal<TopbarServiceStatusModel>({
+        label: this.reportsLabel,
+        status: 'offline',
+        online: false,
+        docsUrl: this.reportsDocsUrl
+    });
+    readonly services = computed(() => [this.backendStatus(), this.reportsStatus()]);
+
+    constructor() {
+        timer(0, 30000)
+            .pipe(
+                switchMap(() =>
+                    forkJoin({
+                        backend: this.api.getBackendHealth().pipe(
+                            map((response) =>
+                                this.mapStatus(this.backendLabel, response.status === 'ok' ? 'online' : 'degraded', this.backendDocsUrl)
+                            ),
+                            catchError(() => of(this.mapStatus(this.backendLabel, 'offline', this.backendDocsUrl)))
+                        ),
+                        reports: this.api.getReportsHealth().pipe(
+                            map(() => this.mapStatus(this.reportsLabel, 'online', this.reportsDocsUrl)),
+                            catchError(() => of(this.mapStatus(this.reportsLabel, 'offline', this.reportsDocsUrl)))
+                        )
+                    })
+                ),
+                takeUntilDestroyed(this.destroyRef)
+            )
+            .subscribe(({ backend, reports }) => {
+                this.backendStatus.set(backend);
+                this.reportsStatus.set(reports);
+            });
+    }
+
+    private mapStatus(label: string, status: TopbarServiceStatusModel['status'], docsUrl: string): TopbarServiceStatusModel {
+        return {
+            label,
+            status,
+            online: status === 'online',
+            docsUrl
+        };
+    }
 }

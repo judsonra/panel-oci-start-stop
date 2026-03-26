@@ -73,3 +73,25 @@ export interface CostByCompartmentReportModel {
 export interface ApiErrorResponse {
     detail?: string;
 }
+
+export interface BackendHealthResponse {
+    status: string;
+    timestamp: string;
+    database: string;
+    oci_cli: string;
+    oci_config: string;
+    details: Record<string, string | null>;
+}
+
+export interface ReportsHealthResponse {
+    status: string;
+}
+
+export type TopbarServiceStatusState = 'online' | 'degraded' | 'offline';
+
+export interface TopbarServiceStatusModel {
+    label: string;
+    status: TopbarServiceStatusState;
+    online: boolean;
+    docsUrl: string;
+}

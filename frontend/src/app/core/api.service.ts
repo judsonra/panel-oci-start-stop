@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { CostByCompartmentReportModel, ExecutionModel, InstanceModel, ScheduleModel } from './models';
+import { BackendHealthResponse, CostByCompartmentReportModel, ExecutionModel, InstanceModel, ReportsHealthResponse, ScheduleModel } from './models';
 
 declare global {
     interface Window {
@@ -17,6 +17,7 @@ export class ApiService {
     private readonly http = inject(HttpClient);
     private readonly baseUrl = this.resolveBaseUrl();
     private readonly reportsBaseUrl = this.resolveReportsBaseUrl();
+    private readonly reportsServiceBaseUrl = this.resolveReportsServiceBaseUrl();
 
     private resolveBaseUrl(): string {
         const configuredBaseUrl = window.__APP_CONFIG__?.apiBaseUrl?.trim();
@@ -26,6 +27,30 @@ export class ApiService {
     private resolveReportsBaseUrl(): string {
         const configuredBaseUrl = window.__APP_CONFIG__?.reportsApiBaseUrl?.trim();
         return configuredBaseUrl && configuredBaseUrl.length > 0 ? configuredBaseUrl : 'http://localhost:8010/api';
+    }
+
+    private resolveReportsServiceBaseUrl(): string {
+        return this.reportsBaseUrl.replace(/\/api\/?$/, '');
+    }
+
+    private resolveDocsUrl(baseUrl: string): string {
+        return baseUrl.replace(/\/api\/?$/, '/docs#');
+    }
+
+    getBackendHealth(): Observable<BackendHealthResponse> {
+        return this.http.get<BackendHealthResponse>(`${this.baseUrl}/health`);
+    }
+
+    getReportsHealth(): Observable<ReportsHealthResponse> {
+        return this.http.get<ReportsHealthResponse>(`${this.reportsServiceBaseUrl}/health`);
+    }
+
+    getBackendDocsUrl(): string {
+        return this.resolveDocsUrl(this.baseUrl);
+    }
+
+    getReportsDocsUrl(): string {
+        return this.resolveDocsUrl(this.reportsBaseUrl);
     }
 
     listInstances(): Observable<InstanceModel[]> {
