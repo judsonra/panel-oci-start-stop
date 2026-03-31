@@ -9,6 +9,15 @@ export interface InstanceModel {
     updated_at: string;
 }
 
+export interface CompartmentModel {
+    id: string;
+    name: string;
+    ocid: string;
+    active: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
 export interface ScheduleModel {
     id: string;
     instance_id: string;

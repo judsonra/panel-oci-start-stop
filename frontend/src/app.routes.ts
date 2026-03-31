@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { AppLayout } from './app/layout/component/app.layout';
+import { CompartmentsPage } from './app/pages/compartments/compartments';
 import { Dashboard } from './app/pages/dashboard/dashboard';
 import { ExecutionsPage } from './app/pages/executions/executions';
 import { InstancesPage } from './app/pages/instances/instances';
@@ -14,6 +15,7 @@ export const appRoutes: Routes = [
             { path: '', component: Dashboard },
             { path: 'instances', component: InstancesPage },
             { path: 'schedules', component: SchedulesPage },
+            { path: 'compartiments', component: CompartmentsPage },
             { path: 'executions', component: ExecutionsPage },
             { path: 'reports/cost-by-compartment', component: CostByCompartmentPage }
         ]

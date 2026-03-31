@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     oci_cli_path: str = "oci"
     oci_cli_profile: str = "DEFAULT"
     oci_config_dir: str = "/home/appuser/.oci"
+    oci_tenant_id: str = ""
     auth_enabled: bool = False
     oidc_issuer: str = ""
     oidc_audience: str = ""

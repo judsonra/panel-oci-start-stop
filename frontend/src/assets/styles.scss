@@ -473,6 +473,26 @@ select {
     flex-wrap: wrap;
 }
 
+.table-filter-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 1rem;
+}
+
+.table-filter-row label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 13rem;
+}
+
+.table-filter-row span {
+    color: var(--app-copy-soft);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
 .ocid-cell {
     max-width: 32rem;
     word-break: break-all;

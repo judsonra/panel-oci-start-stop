@@ -48,4 +48,17 @@ describe('ApiService', () => {
             compartments: []
         });
     });
+
+    it('uses the backend api prefix for compartment endpoints', () => {
+        service.listCompartments().subscribe();
+        service.listAndUpdateCompartments().subscribe();
+
+        const listRequest = httpMock.expectOne('http://localhost:8000/api/compartiments/list');
+        expect(listRequest.request.method).toBe('GET');
+        listRequest.flush([]);
+
+        const syncRequest = httpMock.expectOne('http://localhost:8000/api/compartiments/listandupdate');
+        expect(syncRequest.request.method).toBe('GET');
+        syncRequest.flush([]);
+    });
 });

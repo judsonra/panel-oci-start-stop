@@ -3,13 +3,15 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import text
 
-from app.api.deps import get_instance_service, get_schedule_service
+from app.api.deps import get_compartment_service, get_instance_service, get_schedule_service
 from app.core.security import CurrentUser, get_current_user
 from app.repositories.execution_repository import ExecutionRepository
+from app.schemas.compartment import CompartmentRead
 from app.schemas.common import HealthResponse
 from app.schemas.execution import ExecutionLogRead
 from app.schemas.instance import InstanceActionResult, InstanceCreate, InstanceRead, InstanceUpdate
 from app.schemas.schedule import ScheduleCreate, ScheduleRead, ScheduleUpdate
+from app.services.compartment_service import CompartmentService
 from app.services.instance_service import InstanceService
 from app.services.oci_cli import OCIService, get_oci_service
 from app.services.schedule_service import ScheduleService
@@ -63,6 +65,22 @@ def list_instances(
     service: InstanceService = Depends(get_instance_service),
 ) -> list[InstanceRead]:
     return [InstanceRead.model_validate(item) for item in service.list_instances()]
+
+
+@router.get("/compartiments/list", response_model=list[CompartmentRead])
+def list_compartments(
+    _: CurrentUser = Depends(get_current_user),
+    service: CompartmentService = Depends(get_compartment_service),
+) -> list[CompartmentRead]:
+    return [CompartmentRead.model_validate(item) for item in service.list_compartments()]
+
+
+@router.get("/compartiments/listandupdate", response_model=list[CompartmentRead])
+def list_and_update_compartments(
+    _: CurrentUser = Depends(get_current_user),
+    service: CompartmentService = Depends(get_compartment_service),
+) -> list[CompartmentRead]:
+    return [CompartmentRead.model_validate(item) for item in service.list_and_update()]
 
 
 @router.post("/instances", response_model=InstanceRead, status_code=status.HTTP_201_CREATED)

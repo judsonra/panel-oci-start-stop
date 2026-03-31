@@ -12,7 +12,9 @@ os.environ["AUTH_ENABLED"] = "false"
 os.environ["SCHEDULER_ENABLED"] = "false"
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import app.db.base  # noqa: E402,F401
 from app.models.base import Base  # noqa: E402
+from app.services.oci_cli import OCICompartmentSummary  # noqa: E402
 from app.services.oci_cli import OCICommandResult  # noqa: E402
 
 
@@ -24,6 +26,10 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 class FakeOCIService:
     def __init__(self) -> None:
         self.mode = "success"
+        self.compartments = [
+            OCICompartmentSummary(name="Compartment A", ocid="ocid1.compartment.oc1..aaaa"),
+            OCICompartmentSummary(name="Compartment B", ocid="ocid1.compartment.oc1..bbbb"),
+        ]
 
     def start_instance(self, _: str) -> OCICommandResult:
         if self.mode == "failure":
@@ -95,6 +101,9 @@ class FakeOCIService:
             duration_ms=1,
         )
 
+    def list_compartments(self) -> list[OCICompartmentSummary]:
+        return list(self.compartments)
+
 
 fake_oci_service = FakeOCIService()
 
@@ -104,6 +113,10 @@ def reset_database() -> Generator[None, None, None]:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     fake_oci_service.mode = "success"
+    fake_oci_service.compartments = [
+        OCICompartmentSummary(name="Compartment A", ocid="ocid1.compartment.oc1..aaaa"),
+        OCICompartmentSummary(name="Compartment B", ocid="ocid1.compartment.oc1..bbbb"),
+    ]
     yield
     Base.metadata.drop_all(bind=engine)
 

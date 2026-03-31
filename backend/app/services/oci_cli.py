@@ -37,6 +37,12 @@ class OCIHealthStatus:
     error: str | None = None
 
 
+@dataclass
+class OCICompartmentSummary:
+    name: str
+    ocid: str
+
+
 class OCIService:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -60,6 +66,21 @@ class OCIService:
         if key_path.is_absolute():
             return str(key_path)
         return str((Path(self.settings.oci_config_dir) / key_path).resolve())
+
+    def resolve_tenant_id(self) -> str:
+        if self.settings.oci_tenant_id:
+            return self.settings.oci_tenant_id
+        config_path = Path(self.config_file)
+        if not config_path.is_file():
+            raise RuntimeError(f"OCI config file not found at '{self.config_file}'")
+        parser = configparser.ConfigParser()
+        parser.read(config_path)
+        if self.settings.oci_cli_profile not in parser:
+            raise RuntimeError(f"OCI profile '{self.settings.oci_cli_profile}' not found in '{self.config_file}'")
+        tenant_id = parser[self.settings.oci_cli_profile].get("tenancy")
+        if not tenant_id:
+            raise RuntimeError("OCI tenancy not configured. Set OCI_TENANT_ID or configure tenancy in OCI config.")
+        return tenant_id
 
     def health_status(self) -> OCIHealthStatus:
         config_path = Path(self.config_file)
@@ -154,7 +175,10 @@ class OCIService:
         if completed.stdout:
             try:
                 payload = json.loads(completed.stdout)
-                state = payload.get("data", {}).get("lifecycle-state")
+                if isinstance(payload, dict):
+                    data = payload.get("data")
+                    if isinstance(data, dict):
+                        state = data.get("lifecycle-state")
             except json.JSONDecodeError:
                 state = None
         stderr = completed.stderr.strip() or None
@@ -233,6 +257,45 @@ class OCIService:
                 "json",
             ]
         )
+
+    def list_compartments(self) -> list[OCICompartmentSummary]:
+        result = self._run(
+            [
+                "iam",
+                "compartment",
+                "list",
+                "--compartment-id",
+                self.resolve_tenant_id(),
+                "--compartment-id-in-subtree",
+                "true",
+                "--access-level",
+                "ACCESSIBLE",
+                "--profile",
+                self.settings.oci_cli_profile,
+                "--output",
+                "json",
+            ]
+        )
+        if not result.success:
+            raise RuntimeError(result.parsed_error or result.stderr or "OCI compartment list failed")
+        try:
+            payload = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("OCI compartment list did not return valid JSON") from exc
+
+        items = payload.get("data") or []
+        compartments: list[OCICompartmentSummary] = []
+        seen_ocids: set[str] = set()
+        for item in items:
+            name = item.get("name")
+            ocid = item.get("id")
+            if not isinstance(name, str) or not isinstance(ocid, str):
+                continue
+            if ocid in seen_ocids:
+                continue
+            seen_ocids.add(ocid)
+            compartments.append(OCICompartmentSummary(name=name, ocid=ocid))
+        return compartments
 
     @staticmethod
     def _parse_error(stderr: str | None) -> str | None:

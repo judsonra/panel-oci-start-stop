@@ -132,3 +132,50 @@ def test_run_uses_oci_config_dir_as_cwd():
                             run_mock.return_value = SimpleNamespace(returncode=0, stdout='{"data":{"lifecycle-state":"RUNNING"}}', stderr="")
                             service.start_instance("ocid1.instance.oc1.sa-saopaulo-1.cwd")
     assert run_mock.call_args.kwargs["cwd"] == "/tmp/mock-oci"
+
+
+def test_resolve_tenant_id_uses_setting_when_available():
+    settings = make_settings().model_copy(update={"oci_tenant_id": "ocid1.tenancy.oc1..tenant"})
+    service = OCIService(settings)
+
+    assert service.resolve_tenant_id() == "ocid1.tenancy.oc1..tenant"
+
+
+def test_resolve_tenant_id_uses_config_tenancy_when_setting_is_empty():
+    service = OCIService(make_settings())
+    with patch("app.services.oci_cli.Path.is_file", return_value=True):
+        with patch("app.services.oci_cli.configparser.ConfigParser.read"):
+            with patch("app.services.oci_cli.configparser.ConfigParser.__contains__", return_value=True):
+                with patch("app.services.oci_cli.configparser.ConfigParser.__getitem__", return_value={"tenancy": "ocid1.tenancy.oc1..configtenant"}):
+                    assert service.resolve_tenant_id() == "ocid1.tenancy.oc1..configtenant"
+
+
+def test_resolve_tenant_id_raises_when_not_configured():
+    service = OCIService(make_settings())
+    with patch("app.services.oci_cli.Path.is_file", return_value=True):
+        with patch("app.services.oci_cli.configparser.ConfigParser.read"):
+            with patch("app.services.oci_cli.configparser.ConfigParser.__contains__", return_value=True):
+                with patch("app.services.oci_cli.configparser.ConfigParser.__getitem__", return_value={}):
+                    try:
+                        service.resolve_tenant_id()
+                    except RuntimeError as exc:
+                        assert "OCI tenancy not configured" in str(exc)
+                    else:
+                        raise AssertionError("Expected missing tenancy to raise RuntimeError")
+
+
+def test_list_compartments_command_generation_and_parsing():
+    settings = make_settings().model_copy(update={"oci_tenant_id": "ocid1.tenancy.oc1..tenant"})
+    service = OCIService(settings)
+    with patch("app.services.oci_cli.shutil.which", return_value="/usr/bin/oci"):
+        with patch("app.services.oci_cli.Path.is_file", return_value=True):
+            with patch.object(OCIService, "resolved_key_file", return_value="/tmp/mock-oci/api.pem"):
+                with patch("app.services.oci_cli.subprocess.run") as run_mock:
+                    run_mock.return_value = SimpleNamespace(
+                        returncode=0,
+                        stdout='{"data":[{"name":"Root","id":"ocid1.compartment.oc1..root"},{"name":"Apps","id":"ocid1.compartment.oc1..apps"}]}',
+                        stderr="",
+                    )
+                    result = service.list_compartments()
+    assert [item.name for item in result] == ["Root", "Apps"]
+    assert run_mock.call_args.args[0][:4] == ["oci", "iam", "compartment", "list"]

@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { BackendHealthResponse, CostByCompartmentReportModel, ExecutionModel, InstanceModel, ReportsHealthResponse, ScheduleModel } from './models';
+import { BackendHealthResponse, CompartmentModel, CostByCompartmentReportModel, ExecutionModel, InstanceModel, ReportsHealthResponse, ScheduleModel } from './models';
 
 declare global {
     interface Window {
@@ -55,6 +55,14 @@ export class ApiService {
 
     listInstances(): Observable<InstanceModel[]> {
         return this.http.get<InstanceModel[]>(`${this.baseUrl}/instances`);
+    }
+
+    listCompartments(): Observable<CompartmentModel[]> {
+        return this.http.get<CompartmentModel[]>(`${this.baseUrl}/compartiments/list`);
+    }
+
+    listAndUpdateCompartments(): Observable<CompartmentModel[]> {
+        return this.http.get<CompartmentModel[]>(`${this.baseUrl}/compartiments/listandupdate`);
     }
 
     createInstance(payload: Partial<InstanceModel>): Observable<InstanceModel> {
