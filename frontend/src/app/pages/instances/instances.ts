@@ -14,7 +14,7 @@ import { TextareaModule } from 'primeng/textarea';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TooltipModule } from 'primeng/tooltip';
 import { ApiService } from '@/app/core/api.service';
-import { ApiErrorResponse, InstanceModel } from '@/app/core/models';
+import { ApiErrorResponse, ImportAllCompartmentsModel, InstanceModel } from '@/app/core/models';
 
 @Component({
     selector: 'app-instances-page',
@@ -47,16 +47,33 @@ import { ApiErrorResponse, InstanceModel } from '@/app/core/models';
         </p-dialog>
 
         <p-dialog
-            header="Consultando status das instâncias"
             [visible]="refreshProgressVisible()"
             [modal]="true"
             [closable]="false"
-            [closeOnEscape]="false"
+            [closeOnEscape]="true"
             [draggable]="false"
             [dismissableMask]="false"
             [resizable]="false"
             [style]="{ width: '34rem', maxWidth: 'calc(100vw - 2rem)' }"
+            (onHide)="handleRefreshProgressHide()"
         >
+            <ng-template pTemplate="header">
+                <div class="dialog-header-with-action">
+                    <span>Consultando status das instâncias</span>
+                    <button
+                        pButton
+                        type="button"
+                        icon="pi pi-times"
+                        rounded
+                        text
+                        severity="secondary"
+                        pTooltip="Cancelar e Fechar"
+                        tooltipPosition="top"
+                        aria-label="Cancelar e Fechar"
+                        (click)="requestRefreshCancellation()"
+                    ></button>
+                </div>
+            </ng-template>
             <div class="refresh-progress-copy">
                 <strong>{{ refreshProgressCount() }} / {{ refreshProgressTotal() }}</strong>
                 <span>{{ refreshProgressMessage() }}</span>
@@ -65,6 +82,106 @@ import { ApiErrorResponse, InstanceModel } from '@/app/core/models';
                 }
             </div>
             <p-progressbar [value]="refreshProgressPercent()"></p-progressbar>
+        </p-dialog>
+
+        <p-dialog
+            header="Registro Automático"
+            [visible]="autoRegisterConfirmationVisible()"
+            [modal]="true"
+            [closable]="true"
+            [draggable]="false"
+            [resizable]="false"
+            [style]="{ width: '34rem', maxWidth: 'calc(100vw - 2rem)' }"
+            (visibleChange)="handleAutoRegisterConfirmationVisibility($event)"
+        >
+            <div class="auto-register-dialog-copy">
+                <p>Esta ação pode demorar e gerar lentidão. Deseja prosseguir.</p>
+                <label>
+                    <span>Digite <strong>Estou ciente</strong> para habilitar o botão Sim</span>
+                    <input
+                        pInputText
+                        [ngModel]="autoRegisterConfirmationText()"
+                        [ngModelOptions]="{ standalone: true }"
+                        placeholder="Estou ciente"
+                        (ngModelChange)="autoRegisterConfirmationText.set($event)"
+                    />
+                </label>
+            </div>
+            <ng-template pTemplate="footer">
+                <button pButton type="button" label="Não" severity="secondary" [outlined]="true" (click)="cancelAutoRegisterConfirmation()"></button>
+                <button pButton type="button" label="Sim" severity="danger" [disabled]="!autoRegisterCanConfirm()" (click)="confirmAutomaticRegistration()"></button>
+            </ng-template>
+        </p-dialog>
+
+        <p-dialog
+            [header]="autoRegisterCompleted() ? 'Registro Automático concluído' : 'Registro Automático em andamento'"
+            [visible]="autoRegisterProgressVisible()"
+            [modal]="true"
+            [closable]="autoRegisterCompleted()"
+            [closeOnEscape]="autoRegisterCompleted()"
+            [draggable]="false"
+            [dismissableMask]="false"
+            [resizable]="false"
+            [style]="{ width: '44rem', maxWidth: 'calc(100vw - 2rem)' }"
+            (visibleChange)="handleAutoRegisterProgressVisibility($event)"
+        >
+            <div class="refresh-progress-copy">
+                <strong>{{ autoRegisterProgressTitle() }}</strong>
+                <span>{{ autoRegisterProgressMessage() }}</span>
+                @if (autoRegisterLoading()) {
+                    <p-progressbar mode="indeterminate"></p-progressbar>
+                }
+            </div>
+
+            @if (autoRegisterResult(); as result) {
+                <div class="auto-register-summary-grid">
+                    <article class="auto-register-summary-card">
+                        <span>Compartimentos</span>
+                        <strong>{{ result.processed_compartments }} / {{ result.total_compartments }}</strong>
+                    </article>
+                    <article class="auto-register-summary-card">
+                        <span>Instâncias</span>
+                        <strong>{{ result.total_instances }}</strong>
+                    </article>
+                    <article class="auto-register-summary-card">
+                        <span>Criadas</span>
+                        <strong>{{ result.created }}</strong>
+                    </article>
+                    <article class="auto-register-summary-card">
+                        <span>Atualizadas</span>
+                        <strong>{{ result.updated }}</strong>
+                    </article>
+                    <article class="auto-register-summary-card">
+                        <span>Sem alteração</span>
+                        <strong>{{ result.unchanged }}</strong>
+                    </article>
+                    <article class="auto-register-summary-card">
+                        <span>Falhas</span>
+                        <strong>{{ result.failed }}</strong>
+                    </article>
+                </div>
+
+                <div class="auto-register-compartments">
+                    @for (compartment of result.compartments; track compartment.compartment_ocid) {
+                        <article class="auto-register-compartment-card">
+                            <header>
+                                <strong>{{ compartment.compartment_name }}</strong>
+                                <small>{{ compartment.total_instances }} instância(s)</small>
+                            </header>
+                            <p>
+                                Criadas: {{ compartment.created }} | Atualizadas: {{ compartment.updated }} | Sem alteração:
+                                {{ compartment.unchanged }} | Falhas: {{ compartment.failed }}
+                            </p>
+                        </article>
+                    }
+                </div>
+            }
+
+            <ng-template pTemplate="footer">
+                @if (autoRegisterCompleted()) {
+                    <button pButton type="button" label="Fechar" (click)="closeAutomaticRegistrationProgress()"></button>
+                }
+            </ng-template>
         </p-dialog>
 
         <section class="instances-tabs-panel">
@@ -88,6 +205,10 @@ import { ApiErrorResponse, InstanceModel } from '@/app/core/models';
                                     <tr>
                                         <th>Nome</th>
                                         <th>OCID</th>
+                                        <th>vCPU</th>
+                                        <th>Memória</th>
+                                        <th>IP Público</th>
+                                        <th>IP Privado</th>
                                         <th>Status</th>
                                         <th>Habilitada</th>
                                         <th class="actions-column">Ações</th>
@@ -115,6 +236,10 @@ import { ApiErrorResponse, InstanceModel } from '@/app/core/models';
                                                 ></button>
                                             </div>
                                         </td>
+                                        <td>{{ formatNumber(instance.vcpu) }}</td>
+                                        <td>{{ formatMemory(instance.memory_gbs) }}</td>
+                                        <td>{{ instance.public_ip || '-' }}</td>
+                                        <td>{{ instance.private_ip || '-' }}</td>
                                         <td>
                                             <p-tag [severity]="tagSeverity(instance.last_known_state)" [value]="instance.last_known_state || 'UNKNOWN'"></p-tag>
                                         </td>
@@ -127,54 +252,51 @@ import { ApiErrorResponse, InstanceModel } from '@/app/core/models';
                                             />
                                         </td>
                                         <td class="actions-column">
-                                            <button
-                                                pButton
-                                                type="button"
-                                                size="small"
-                                                icon="pi pi-power-off"
-                                                rounded
-                                                outlined
-                                                pTooltip="Ligar"
-                                                tooltipPosition="top"
-                                                aria-label="Ligar"
-                                                (click)="start(instance.id)"
-                                                [disabled]="!instance.enabled"
-                                            ></button>
-                                            <button
-                                                pButton
-                                                type="button"
-                                                size="small"
-                                                severity="secondary"
-                                                icon="pi pi-stop-circle"
-                                                rounded
-                                                outlined
-                                                pTooltip="Desligar"
-                                                tooltipPosition="top"
-                                                aria-label="Desligar"
-                                                (click)="stop(instance.id)"
-                                                [disabled]="!instance.enabled"
-                                            ></button>
-                                            <button
-                                                pButton
-                                                type="button"
-                                                size="small"
-                                                severity="secondary"
-                                                icon="pi pi-refresh"
-                                                rounded
-                                                outlined
-                                                pTooltip="Atualizar status"
-                                                tooltipPosition="top"
-                                                aria-label="Atualizar status"
-                                                [loading]="isRefreshingRow(instance.id)"
-                                                (click)="refreshInstanceStatus(instance)"
-                                                [disabled]="!instance.enabled || isRefreshingRow(instance.id)"
-                                            ></button>
+                                            <div class="instance-actions-group" role="group" aria-label="Ações da instância">
+                                                <p-button
+                                                    type="button"
+                                                    size="small"
+                                                    severity="success"
+                                                    variant="outlined"
+                                                    icon="pi pi-check"
+                                                    pTooltip="Ligar"
+                                                    tooltipPosition="top"
+                                                    ariaLabel="Ligar"
+                                                    (onClick)="start(instance.id)"
+                                                    [disabled]="!instance.enabled"
+                                                />
+                                                <p-button
+                                                    type="button"
+                                                    size="small"
+                                                    severity="danger"
+                                                    variant="outlined"
+                                                    icon="pi pi-times"
+                                                    pTooltip="Desligar"
+                                                    tooltipPosition="top"
+                                                    ariaLabel="Desligar"
+                                                    (onClick)="stop(instance.id)"
+                                                    [disabled]="!instance.enabled"
+                                                />
+                                                <p-button
+                                                    type="button"
+                                                    size="small"
+                                                    severity="secondary"
+                                                    variant="outlined"
+                                                    icon="pi pi-refresh"
+                                                    pTooltip="Atualizar status"
+                                                    tooltipPosition="top"
+                                                    ariaLabel="Atualizar status"
+                                                    [loading]="isRefreshingRow(instance.id)"
+                                                    (onClick)="refreshInstanceStatus(instance)"
+                                                    [disabled]="!instance.enabled || isRefreshingRow(instance.id)"
+                                                />
+                                            </div>
                                         </td>
                                     </tr>
                                 </ng-template>
                                 <ng-template pTemplate="emptymessage">
                                     <tr>
-                                        <td colspan="5">Nenhuma instância cadastrada.</td>
+                                        <td colspan="9">Nenhuma instância cadastrada.</td>
                                     </tr>
                                 </ng-template>
                             </p-table>
@@ -204,6 +326,15 @@ import { ApiErrorResponse, InstanceModel } from '@/app/core/models';
 
                             <div class="form-actions">
                                 <button pButton type="submit" label="Salvar instância" icon="pi pi-save" [disabled]="form.invalid || saving()"></button>
+                                <button
+                                    pButton
+                                    type="button"
+                                    label="Registro Automático"
+                                    icon="pi pi-bolt"
+                                    severity="danger"
+                                    [disabled]="saving() || autoRegisterLoading()"
+                                    (click)="openAutomaticRegistrationConfirmation()"
+                                ></button>
                             </div>
                         </form>
                     </p-tabpanel>
@@ -232,9 +363,25 @@ export class InstancesPage implements OnInit {
     readonly refreshProgressTotal = signal(0);
     readonly refreshCurrentInstanceName = signal<string | null>(null);
     readonly refreshProgressMessage = signal('Preparando consulta...');
+    readonly refreshCancellationRequested = signal(false);
+    readonly autoRegisterConfirmationVisible = signal(false);
+    readonly autoRegisterLoading = signal(false);
+    readonly autoRegisterProgressVisible = signal(false);
+    readonly autoRegisterProgressMessage = signal('Preparando sincronização das instâncias...');
+    readonly autoRegisterResult = signal<ImportAllCompartmentsModel | null>(null);
+    readonly autoRegisterCompleted = signal(false);
+    readonly autoRegisterConfirmationText = signal('');
     readonly refreshProgressPercent = computed(() => {
         const total = this.refreshProgressTotal();
         return total === 0 ? 0 : Math.round((this.refreshProgressCount() / total) * 100);
+    });
+    readonly autoRegisterCanConfirm = computed(() => this.autoRegisterConfirmationText().trim() === 'Estou ciente');
+    readonly autoRegisterProgressTitle = computed(() => {
+        const result = this.autoRegisterResult();
+        if (!result) {
+            return this.autoRegisterLoading() ? 'Consultando todos os compartimentos ativos...' : 'Sincronização pendente.';
+        }
+        return `Compartimentos processados: ${result.processed_compartments} / ${result.total_compartments}`;
     });
 
     readonly form = this.formBuilder.nonNullable.group({
@@ -270,6 +417,49 @@ export class InstancesPage implements OnInit {
         this.refreshConfirmationVisible.set(false);
     }
 
+    requestRefreshCancellation(): void {
+        this.refreshCancellationRequested.set(true);
+        this.refreshProgressVisible.set(false);
+        this.refreshProgressMessage.set('Cancelamento solicitado. Finalizando a consulta em andamento...');
+    }
+
+    handleRefreshProgressHide(): void {
+        if (this.refreshingStatuses()) {
+            this.requestRefreshCancellation();
+        }
+    }
+
+    openAutomaticRegistrationConfirmation(): void {
+        this.actionFeedback.set(null);
+        this.error.set(null);
+        this.autoRegisterConfirmationText.set('');
+        this.autoRegisterConfirmationVisible.set(true);
+    }
+
+    cancelAutoRegisterConfirmation(): void {
+        this.autoRegisterConfirmationVisible.set(false);
+        this.autoRegisterConfirmationText.set('');
+    }
+
+    handleAutoRegisterConfirmationVisibility(visible: boolean): void {
+        if (!visible) {
+            this.cancelAutoRegisterConfirmation();
+        }
+    }
+
+    handleAutoRegisterProgressVisibility(visible: boolean): void {
+        if (!visible && this.autoRegisterCompleted()) {
+            this.closeAutomaticRegistrationProgress();
+        }
+    }
+
+    closeAutomaticRegistrationProgress(): void {
+        this.autoRegisterProgressVisible.set(false);
+        this.autoRegisterCompleted.set(false);
+        this.autoRegisterResult.set(null);
+        this.autoRegisterProgressMessage.set('Preparando sincronização das instâncias...');
+    }
+
     async confirmRefreshStatuses(): Promise<void> {
         this.refreshConfirmationVisible.set(false);
         const enabledInstances = this.instances().filter((instance) => instance.enabled);
@@ -282,6 +472,7 @@ export class InstancesPage implements OnInit {
 
         this.refreshingStatuses.set(true);
         this.refreshProgressVisible.set(true);
+        this.refreshCancellationRequested.set(false);
         this.refreshProgressCount.set(0);
         this.refreshProgressTotal.set(enabledInstances.length);
         this.refreshProgressMessage.set('Iniciando consulta dos status...');
@@ -293,6 +484,9 @@ export class InstancesPage implements OnInit {
         let failedCount = 0;
 
         for (const instance of enabledInstances) {
+            if (this.refreshCancellationRequested()) {
+                break;
+            }
             this.refreshCurrentInstanceName.set(instance.name);
             this.refreshProgressMessage.set(`Consultando o status de ${instance.name}...`);
 
@@ -308,6 +502,10 @@ export class InstancesPage implements OnInit {
             } finally {
                 this.refreshProgressCount.set(this.refreshProgressCount() + 1);
             }
+
+            if (this.refreshCancellationRequested()) {
+                break;
+            }
         }
 
         this.refreshCurrentInstanceName.set(null);
@@ -316,12 +514,56 @@ export class InstancesPage implements OnInit {
         this.refreshingStatuses.set(false);
         this.loadInstances();
 
+        if (this.refreshCancellationRequested()) {
+            this.actionFeedbackSeverity.set('error');
+            this.actionFeedback.set(`Atualização cancelada após ${this.refreshProgressCount()} instância(s) processada(s).`);
+            return;
+        }
+
         this.actionFeedbackSeverity.set(failedCount > 0 ? 'error' : 'success');
         if (failedCount > 0) {
             this.actionFeedback.set(`Consulta concluída: ${successCount} com sucesso e ${failedCount} com falha.`);
         } else {
             this.actionFeedback.set(`Consulta concluída com sucesso para ${successCount} instância(s).`);
         }
+    }
+
+    confirmAutomaticRegistration(): void {
+        if (!this.autoRegisterCanConfirm()) {
+            return;
+        }
+
+        this.autoRegisterConfirmationVisible.set(false);
+        this.autoRegisterLoading.set(true);
+        this.autoRegisterProgressVisible.set(true);
+        this.autoRegisterCompleted.set(false);
+        this.autoRegisterResult.set(null);
+        this.autoRegisterProgressMessage.set('Consultando os compartimentos ativos e importando as instâncias...');
+
+        this.api
+            .importAllCompartmentsInstances()
+            .pipe(finalize(() => this.autoRegisterLoading.set(false)))
+            .subscribe({
+                next: (result) => {
+                    this.autoRegisterResult.set(result);
+                    this.autoRegisterCompleted.set(true);
+                    this.autoRegisterProgressMessage.set('Sincronização concluída. Revise o resumo abaixo.');
+                    this.actionFeedbackSeverity.set(result.failed > 0 ? 'error' : 'success');
+                    this.actionFeedback.set(
+                        result.failed > 0
+                            ? `Registro automático concluído com ${result.created} criada(s), ${result.updated} atualizada(s), ${result.unchanged} sem alteração e ${result.failed} falha(s).`
+                            : `Registro automático concluído com ${result.created} criada(s), ${result.updated} atualizada(s) e ${result.unchanged} sem alteração.`
+                    );
+                    this.activeTab.set(0);
+                    this.loadInstances();
+                },
+                error: (response: { error?: ApiErrorResponse }) => {
+                    this.autoRegisterCompleted.set(true);
+                    this.autoRegisterProgressMessage.set('A sincronização foi interrompida por erro.');
+                    this.actionFeedbackSeverity.set('error');
+                    this.actionFeedback.set(response.error?.detail ?? 'Não foi possível executar o registro automático.');
+                }
+            });
     }
 
     save(): void {
@@ -391,6 +633,20 @@ export class InstancesPage implements OnInit {
 
     setActiveTab(value: string | number | undefined): void {
         this.activeTab.set(typeof value === 'number' ? value : Number(value ?? 0));
+    }
+
+    formatNumber(value?: number | null): string {
+        if (value == null) {
+            return '-';
+        }
+        return Number.isInteger(value) ? `${value}` : value.toFixed(1);
+    }
+
+    formatMemory(value?: number | null): string {
+        if (value == null) {
+            return '-';
+        }
+        return `${this.formatNumber(value)} GB`;
     }
 
     formatOcid(ocid?: string | null): string {

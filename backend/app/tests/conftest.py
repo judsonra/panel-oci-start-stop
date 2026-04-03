@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import os
 import sys
 from collections.abc import Generator
@@ -16,6 +17,7 @@ import app.db.base  # noqa: E402,F401
 from app.models.base import Base  # noqa: E402
 from app.services.oci_cli import OCICompartmentSummary  # noqa: E402
 from app.services.oci_cli import OCICommandResult  # noqa: E402
+from app.services.oci_cli import OCIInstanceSummary, OCIVnicDetails  # noqa: E402
 
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
@@ -30,6 +32,38 @@ class FakeOCIService:
             OCICompartmentSummary(name="Compartment A", ocid="ocid1.compartment.oc1..aaaa"),
             OCICompartmentSummary(name="Compartment B", ocid="ocid1.compartment.oc1..bbbb"),
         ]
+        self.instances_by_compartment = {
+            "ocid1.compartment.oc1..aaaa": [
+                OCIInstanceSummary(
+                    name="Instance A1",
+                    ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+                    vcpu=2.0,
+                    memory_gbs=12.0,
+                    oci_created_at=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc),
+                )
+            ],
+            "ocid1.compartment.oc1..bbbb": [
+                OCIInstanceSummary(
+                    name="Instance B1",
+                    ocid="ocid1.instance.oc1.sa-saopaulo-1.autob1",
+                    vcpu=4.0,
+                    memory_gbs=24.0,
+                    oci_created_at=datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc),
+                )
+            ],
+        }
+        self.vnic_ids = {
+            "ocid1.instance.oc1.sa-saopaulo-1.autoa1": "ocid1.vnic.oc1..aaaavnic",
+            "ocid1.instance.oc1.sa-saopaulo-1.autob1": "ocid1.vnic.oc1..bbbbvnic",
+        }
+        self.vnic_details = {
+            "ocid1.vnic.oc1..aaaavnic": OCIVnicDetails(
+                vnic_id="ocid1.vnic.oc1..aaaavnic", public_ip="129.1.1.1", private_ip="10.0.0.10"
+            ),
+            "ocid1.vnic.oc1..bbbbvnic": OCIVnicDetails(
+                vnic_id="ocid1.vnic.oc1..bbbbvnic", public_ip=None, private_ip="10.0.1.10"
+            ),
+        }
 
     def start_instance(self, _: str) -> OCICommandResult:
         if self.mode == "failure":
@@ -104,6 +138,17 @@ class FakeOCIService:
     def list_compartments(self) -> list[OCICompartmentSummary]:
         return list(self.compartments)
 
+    def list_instances_by_compartment(self, compartment_ocid: str) -> list[OCIInstanceSummary]:
+        return list(self.instances_by_compartment.get(compartment_ocid, []))
+
+    def get_instance_vnic_id(self, instance_ocid: str) -> str | None:
+        return self.vnic_ids.get(instance_ocid)
+
+    def get_vnic_details(self, vnic_id: str) -> OCIVnicDetails:
+        if vnic_id not in self.vnic_details:
+            raise RuntimeError("vnic_not_found")
+        return self.vnic_details[vnic_id]
+
 
 fake_oci_service = FakeOCIService()
 
@@ -117,6 +162,38 @@ def reset_database() -> Generator[None, None, None]:
         OCICompartmentSummary(name="Compartment A", ocid="ocid1.compartment.oc1..aaaa"),
         OCICompartmentSummary(name="Compartment B", ocid="ocid1.compartment.oc1..bbbb"),
     ]
+    fake_oci_service.instances_by_compartment = {
+        "ocid1.compartment.oc1..aaaa": [
+            OCIInstanceSummary(
+                name="Instance A1",
+                ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+                vcpu=2.0,
+                memory_gbs=12.0,
+                oci_created_at=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc),
+            )
+        ],
+        "ocid1.compartment.oc1..bbbb": [
+            OCIInstanceSummary(
+                name="Instance B1",
+                ocid="ocid1.instance.oc1.sa-saopaulo-1.autob1",
+                vcpu=4.0,
+                memory_gbs=24.0,
+                oci_created_at=datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc),
+            )
+        ],
+    }
+    fake_oci_service.vnic_ids = {
+        "ocid1.instance.oc1.sa-saopaulo-1.autoa1": "ocid1.vnic.oc1..aaaavnic",
+        "ocid1.instance.oc1.sa-saopaulo-1.autob1": "ocid1.vnic.oc1..bbbbvnic",
+    }
+    fake_oci_service.vnic_details = {
+        "ocid1.vnic.oc1..aaaavnic": OCIVnicDetails(
+            vnic_id="ocid1.vnic.oc1..aaaavnic", public_ip="129.1.1.1", private_ip="10.0.0.10"
+        ),
+        "ocid1.vnic.oc1..bbbbvnic": OCIVnicDetails(
+            vnic_id="ocid1.vnic.oc1..bbbbvnic", public_ip=None, private_ip="10.0.1.10"
+        ),
+    }
     yield
     Base.metadata.drop_all(bind=engine)
 

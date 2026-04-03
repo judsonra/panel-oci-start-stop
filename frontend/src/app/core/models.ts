@@ -5,6 +5,12 @@ export interface InstanceModel {
     description?: string | null;
     enabled: boolean;
     last_known_state?: string | null;
+    vcpu?: number | null;
+    memory_gbs?: number | null;
+    vnic_id?: string | null;
+    public_ip?: string | null;
+    private_ip?: string | null;
+    oci_created_at?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -81,6 +87,52 @@ export interface CostByCompartmentReportModel {
 
 export interface ApiErrorResponse {
     detail?: string;
+}
+
+export interface InstanceVnicModel {
+    instance_ocid: string;
+    vnic_id?: string | null;
+}
+
+export interface VnicDetailsModel {
+    vnic_id: string;
+    public_ip?: string | null;
+    private_ip?: string | null;
+}
+
+export interface ImportedInstanceModel {
+    ocid: string;
+    name: string;
+    status: 'created' | 'updated' | 'unchanged' | 'failed';
+    message?: string | null;
+    vcpu?: number | null;
+    memory_gbs?: number | null;
+    vnic_id?: string | null;
+    public_ip?: string | null;
+    private_ip?: string | null;
+    oci_created_at?: string | null;
+}
+
+export interface ImportedCompartmentModel {
+    compartment_ocid: string;
+    compartment_name: string;
+    total_instances: number;
+    created: number;
+    updated: number;
+    unchanged: number;
+    failed: number;
+    instances: ImportedInstanceModel[];
+}
+
+export interface ImportAllCompartmentsModel {
+    total_compartments: number;
+    processed_compartments: number;
+    total_instances: number;
+    created: number;
+    updated: number;
+    unchanged: number;
+    failed: number;
+    compartments: ImportedCompartmentModel[];
 }
 
 export interface BackendHealthResponse {

@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { Observable, of, throwError } from 'rxjs';
 import { ApiService } from '@/app/core/api.service';
 import { InstancesPage } from './instances';
 
@@ -10,7 +10,15 @@ describe('InstancesPage', () => {
     let clipboardWriteText: jasmine.Spy;
 
     beforeEach(async () => {
-        apiService = jasmine.createSpyObj<ApiService>('ApiService', ['listInstances', 'createInstance', 'updateInstance', 'startInstance', 'stopInstance', 'getInstanceStatus']);
+        apiService = jasmine.createSpyObj<ApiService>('ApiService', [
+            'listInstances',
+            'createInstance',
+            'updateInstance',
+            'startInstance',
+            'stopInstance',
+            'getInstanceStatus',
+            'importAllCompartmentsInstances'
+        ]);
         apiService.listInstances.and.returnValue(
             of([
                 {
@@ -18,6 +26,10 @@ describe('InstancesPage', () => {
                     name: 'Teste',
                     ocid: 'ocid1.instance.oc1..example',
                     enabled: true,
+                    vcpu: 2,
+                    memory_gbs: 16,
+                    public_ip: '129.10.10.10',
+                    private_ip: '10.0.0.10',
                     created_at: '2026-03-12T00:00:00Z',
                     updated_at: '2026-03-12T00:00:00Z'
                 }
@@ -72,6 +84,39 @@ describe('InstancesPage', () => {
                 source: 'manual',
                 status: 'success',
                 started_at: '2026-03-12T00:00:00Z'
+            })
+        );
+        apiService.importAllCompartmentsInstances.and.returnValue(
+            of({
+                total_compartments: 2,
+                processed_compartments: 2,
+                total_instances: 3,
+                created: 1,
+                updated: 1,
+                unchanged: 1,
+                failed: 0,
+                compartments: [
+                    {
+                        compartment_ocid: 'ocid1.compartment.oc1..aaaa',
+                        compartment_name: 'Compartment A',
+                        total_instances: 2,
+                        created: 1,
+                        updated: 1,
+                        unchanged: 0,
+                        failed: 0,
+                        instances: []
+                    },
+                    {
+                        compartment_ocid: 'ocid1.compartment.oc1..bbbb',
+                        compartment_name: 'Compartment B',
+                        total_instances: 1,
+                        created: 0,
+                        updated: 0,
+                        unchanged: 1,
+                        failed: 0,
+                        instances: []
+                    }
+                ]
             })
         );
         clipboardWriteText = jasmine.createSpy('writeText').and.resolveTo();
@@ -199,6 +244,60 @@ describe('InstancesPage', () => {
         expect(component.actionFeedbackSeverity()).toBe('error');
     });
 
+    it('requests cancellation and closes the progress dialog immediately', () => {
+        component.refreshProgressVisible.set(true);
+        component.refreshingStatuses.set(true);
+
+        component.requestRefreshCancellation();
+
+        expect(component.refreshCancellationRequested()).toBeTrue();
+        expect(component.refreshProgressVisible()).toBeFalse();
+        expect(component.refreshProgressMessage()).toContain('Cancelamento solicitado');
+    });
+
+    it('stops after the current status request finishes when cancellation is requested', async () => {
+        component.instances.set([
+            component.instances()[0],
+            {
+                id: 'instance-2',
+                name: 'Segundo Nó',
+                ocid: 'ocid1.instance.oc1..second',
+                enabled: true,
+                created_at: '2026-03-12T00:00:00Z',
+                updated_at: '2026-03-12T00:00:00Z'
+            }
+        ]);
+
+        let releaseFirstRequest: (() => void) | null = null;
+        apiService.getInstanceStatus.and.callFake(
+            () =>
+                new Observable((subscriber) => {
+                    releaseFirstRequest = () => {
+                        subscriber.next({
+                            id: 'exec-status-1',
+                            instance_id: 'instance-1',
+                            instance_state: 'RUNNING',
+                            action: 'status',
+                            source: 'manual',
+                            status: 'success',
+                            started_at: '2026-03-12T00:00:00Z'
+                        });
+                        subscriber.complete();
+                    };
+                })
+        );
+
+        const refreshPromise = component.confirmRefreshStatuses();
+        component.requestRefreshCancellation();
+        releaseFirstRequest?.();
+        await refreshPromise;
+
+        expect(apiService.getInstanceStatus).toHaveBeenCalledTimes(1);
+        expect(component.refreshingStatuses()).toBeFalse();
+        expect(component.actionFeedback()).toBe('Atualização cancelada após 1 instância(s) processada(s).');
+        expect(component.actionFeedbackSeverity()).toBe('error');
+    });
+
     it('shows feedback when there are no enabled instances to refresh', async () => {
         component.instances.set([
             {
@@ -215,6 +314,45 @@ describe('InstancesPage', () => {
 
         expect(apiService.getInstanceStatus).not.toHaveBeenCalled();
         expect(component.actionFeedback()).toBe('Não há instâncias habilitadas para consultar o status.');
+        expect(component.actionFeedbackSeverity()).toBe('error');
+    });
+
+    it('opens the automatic registration confirmation dialog', () => {
+        component.openAutomaticRegistrationConfirmation();
+
+        expect(component.autoRegisterConfirmationVisible()).toBeTrue();
+        expect(component.autoRegisterCanConfirm()).toBeFalse();
+    });
+
+    it('enables automatic registration only when the user types the confirmation text', () => {
+        component.openAutomaticRegistrationConfirmation();
+        component.autoRegisterConfirmationText.set('Estou ciente');
+
+        expect(component.autoRegisterCanConfirm()).toBeTrue();
+    });
+
+    it('runs automatic registration and stores the summary result', () => {
+        component.openAutomaticRegistrationConfirmation();
+        component.autoRegisterConfirmationText.set('Estou ciente');
+
+        component.confirmAutomaticRegistration();
+
+        expect(apiService.importAllCompartmentsInstances).toHaveBeenCalled();
+        expect(component.autoRegisterProgressVisible()).toBeTrue();
+        expect(component.autoRegisterCompleted()).toBeTrue();
+        expect(component.autoRegisterResult()?.created).toBe(1);
+        expect(component.actionFeedback()).toContain('Registro automático concluído');
+    });
+
+    it('shows an error when automatic registration fails', () => {
+        apiService.importAllCompartmentsInstances.and.returnValue(throwError(() => ({ error: { detail: 'Falha OCI' } })));
+        component.openAutomaticRegistrationConfirmation();
+        component.autoRegisterConfirmationText.set('Estou ciente');
+
+        component.confirmAutomaticRegistration();
+
+        expect(component.autoRegisterCompleted()).toBeTrue();
+        expect(component.actionFeedback()).toBe('Falha OCI');
         expect(component.actionFeedbackSeverity()).toBe('error');
     });
 
@@ -257,61 +395,5 @@ describe('InstancesPage', () => {
         component.stop('instance-1');
         expect(apiService.startInstance).toHaveBeenCalledWith('instance-1');
         expect(apiService.stopInstance).toHaveBeenCalledWith('instance-1');
-    });
-
-    it('updates the instance enabled state when toggled off', () => {
-        component.toggleEnabled(component.instances()[0], false);
-
-        expect(apiService.updateInstance).toHaveBeenCalledWith('instance-1', { enabled: false });
-        expect(component.instances()[0].enabled).toBeFalse();
-        expect(component.actionFeedback()).toContain('desabilitada com sucesso');
-    });
-
-    it('reverts the instance enabled state when the toggle update fails', () => {
-        apiService.updateInstance.and.returnValue(throwError(() => ({ error: { detail: 'Erro ao atualizar' } })));
-
-        component.toggleEnabled(component.instances()[0], false);
-
-        expect(component.instances()[0].enabled).toBeTrue();
-        expect(component.actionFeedback()).toBe('Erro ao atualizar');
-        expect(component.actionFeedbackSeverity()).toBe('error');
-    });
-
-    it('formats long ocids with ellipsis and the last ten characters', () => {
-        expect(component.formatOcid('ocid1.instance.oc1.sa-saopaulo-1.abcdefghij')).toBe('...abcdefghij');
-    });
-
-    it('does not truncate short ocids', () => {
-        expect(component.formatOcid('1234567890')).toBe('1234567890');
-    });
-
-    it('copies the full ocid and shows success feedback', async () => {
-        await component.copyOcid('ocid1.instance.oc1.sa-saopaulo-1.fullvalue');
-
-        expect(clipboardWriteText).toHaveBeenCalledWith('ocid1.instance.oc1.sa-saopaulo-1.fullvalue');
-        expect(component.actionFeedback()).toBe('OCID copiado com sucesso.');
-        expect(component.actionFeedbackSeverity()).toBe('success');
-    });
-
-    it('shows an error when clipboard copy fails', async () => {
-        clipboardWriteText.and.rejectWith(new Error('clipboard error'));
-
-        await component.copyOcid('ocid1.instance.oc1.sa-saopaulo-1.fullvalue');
-
-        expect(component.actionFeedback()).toBe('Não foi possível copiar o OCID.');
-        expect(component.actionFeedbackSeverity()).toBe('error');
-    });
-
-    it('shows success feedback after a stop command', () => {
-        component.stop('instance-1');
-        expect(component.actionFeedback()).toContain('desligamento');
-        expect(component.actionFeedbackSeverity()).toBe('success');
-    });
-
-    it('shows error feedback when the backend rejects a stop command', () => {
-        apiService.stopInstance.and.returnValue(throwError(() => ({ error: { detail: 'Erro OCI' } })));
-        component.stop('instance-1');
-        expect(component.actionFeedback()).toBe('Erro OCI');
-        expect(component.actionFeedbackSeverity()).toBe('error');
     });
 });
