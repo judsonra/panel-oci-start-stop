@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Response, status
@@ -9,7 +10,15 @@ from app.repositories.execution_repository import ExecutionRepository
 from app.schemas.compartment import CompartmentRead
 from app.schemas.common import HealthResponse
 from app.schemas.execution import ExecutionLogRead
-from app.schemas.instance import InstanceActionResult, InstanceCreate, InstanceRead, InstanceUpdate
+from app.schemas.instance import (
+    CompartmentInstancesImportRead,
+    InstanceActionResult,
+    InstanceCreate,
+    InstanceRead,
+    InstanceUpdate,
+    InstanceVnicRead,
+    VnicDetailsRead,
+)
 from app.schemas.schedule import ScheduleCreate, ScheduleRead, ScheduleUpdate
 from app.services.compartment_service import CompartmentService
 from app.services.instance_service import InstanceService
@@ -81,6 +90,33 @@ def list_and_update_compartments(
     service: CompartmentService = Depends(get_compartment_service),
 ) -> list[CompartmentRead]:
     return [CompartmentRead.model_validate(item) for item in service.list_and_update()]
+
+
+@router.get("/compartiments/instancesall", response_model=CompartmentInstancesImportRead)
+def import_all_compartment_instances(
+    _: CurrentUser = Depends(get_current_user),
+    service: InstanceService = Depends(get_instance_service),
+) -> CompartmentInstancesImportRead:
+    return CompartmentInstancesImportRead(**asdict(service.import_all_compartment_instances()))
+
+
+@router.get("/compartiments/instances/{instance_ocid}/vnic", response_model=InstanceVnicRead)
+def get_instance_vnic(
+    instance_ocid: str,
+    _: CurrentUser = Depends(get_current_user),
+    service: InstanceService = Depends(get_instance_service),
+) -> InstanceVnicRead:
+    return InstanceVnicRead(instance_ocid=instance_ocid, vnic_id=service.get_instance_vnic(instance_ocid))
+
+
+@router.get("/compartiments/vnics/{vnic_id}", response_model=VnicDetailsRead)
+def get_vnic_details(
+    vnic_id: str,
+    _: CurrentUser = Depends(get_current_user),
+    service: InstanceService = Depends(get_instance_service),
+) -> VnicDetailsRead:
+    details = service.get_vnic_details(vnic_id)
+    return VnicDetailsRead(vnic_id=details.vnic_id, public_ip=details.public_ip, private_ip=details.private_ip)
 
 
 @router.post("/instances", response_model=InstanceRead, status_code=status.HTTP_201_CREATED)

@@ -1,9 +1,10 @@
 from fastapi import HTTPException
 
-from app.api.routes import create_instance, get_status
+from app.api.routes import create_instance, get_instance_vnic, get_status, get_vnic_details, import_all_compartment_instances
 from app.core.security import CurrentUser
 from app.models.execution_log import ExecutionStatus
 from app.schemas.instance import InstanceCreate
+from app.services.compartment_service import CompartmentService
 from app.services.instance_service import InstanceService
 from app.tests.conftest import fake_oci_service
 
@@ -116,3 +117,105 @@ def test_get_status_route_returns_instance_state(override_session):
     assert response.instance_id == created.id
     assert response.instance_state == "RUNNING"
     assert response.status == ExecutionStatus.success
+
+
+def test_import_all_compartment_instances_creates_records_and_enriches_network_fields(override_session):
+    CompartmentService(override_session, fake_oci_service).list_and_update()
+    service = InstanceService(override_session, fake_oci_service)
+    result = import_all_compartment_instances(CurrentUser(subject="local", email=None, groups=[]), service)
+
+    assert result.total_compartments == 2
+    assert result.total_instances == 2
+    assert result.created == 2
+    assert result.updated == 0
+    assert result.unchanged == 0
+    assert result.failed == 0
+
+    instances = service.list_instances()
+    by_ocid = {item.ocid: item for item in instances}
+    first = by_ocid["ocid1.instance.oc1.sa-saopaulo-1.autoa1"]
+    second = by_ocid["ocid1.instance.oc1.sa-saopaulo-1.autob1"]
+
+    assert first.vcpu == 2.0
+    assert first.memory_gbs == 12.0
+    assert first.vnic_id == "ocid1.vnic.oc1..aaaavnic"
+    assert first.public_ip == "129.1.1.1"
+    assert first.private_ip == "10.0.0.10"
+    assert first.oci_created_at is not None
+    assert first.enabled is True
+    assert first.description is None
+
+    assert second.vnic_id == "ocid1.vnic.oc1..bbbbvnic"
+    assert second.public_ip is None
+    assert second.private_ip == "10.0.1.10"
+
+
+def test_import_all_compartment_instances_updates_existing_ocid_and_preserves_local_fields(override_session):
+    CompartmentService(override_session, fake_oci_service).list_and_update()
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="Nome Antigo",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+            description="manter",
+            enabled=False,
+        )
+    )
+    created.last_known_state = "STOPPED"
+    override_session.add(created)
+    override_session.commit()
+
+    result = service.import_all_compartment_instances()
+    updated = service.instances.get_by_ocid("ocid1.instance.oc1.sa-saopaulo-1.autoa1")
+
+    assert result.created == 1
+    assert result.updated == 1
+    assert updated is not None
+    assert updated.name == "Instance A1"
+    assert updated.description == "manter"
+    assert updated.enabled is False
+    assert updated.last_known_state == "STOPPED"
+    assert updated.vcpu == 2.0
+    assert updated.public_ip == "129.1.1.1"
+
+
+def test_get_instance_vnic_route_returns_primary_vnic(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+
+    response = get_instance_vnic(
+        "ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+        CurrentUser(subject="local", email=None, groups=[]),
+        service,
+    )
+
+    assert response.instance_ocid == "ocid1.instance.oc1.sa-saopaulo-1.autoa1"
+    assert response.vnic_id == "ocid1.vnic.oc1..aaaavnic"
+
+
+def test_get_vnic_details_route_returns_public_and_private_ip(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+
+    response = get_vnic_details(
+        "ocid1.vnic.oc1..aaaavnic",
+        CurrentUser(subject="local", email=None, groups=[]),
+        service,
+    )
+
+    assert response.vnic_id == "ocid1.vnic.oc1..aaaavnic"
+    assert response.public_ip == "129.1.1.1"
+    assert response.private_ip == "10.0.0.10"
+
+
+def test_import_all_compartment_instances_handles_missing_vnic_without_failing(override_session):
+    CompartmentService(override_session, fake_oci_service).list_and_update()
+    fake_oci_service.vnic_ids["ocid1.instance.oc1.sa-saopaulo-1.autoa1"] = None
+    service = InstanceService(override_session, fake_oci_service)
+
+    result = service.import_all_compartment_instances()
+    imported = service.instances.get_by_ocid("ocid1.instance.oc1.sa-saopaulo-1.autoa1")
+
+    assert result.failed == 0
+    assert imported is not None
+    assert imported.vnic_id is None
+    assert imported.public_ip is None
+    assert imported.private_ip is None

@@ -1,7 +1,18 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { BackendHealthResponse, CompartmentModel, CostByCompartmentReportModel, ExecutionModel, InstanceModel, ReportsHealthResponse, ScheduleModel } from './models';
+import {
+    BackendHealthResponse,
+    CompartmentModel,
+    CostByCompartmentReportModel,
+    ExecutionModel,
+    ImportAllCompartmentsModel,
+    InstanceModel,
+    InstanceVnicModel,
+    ReportsHealthResponse,
+    ScheduleModel,
+    VnicDetailsModel
+} from './models';
 
 declare global {
     interface Window {
@@ -63,6 +74,18 @@ export class ApiService {
 
     listAndUpdateCompartments(): Observable<CompartmentModel[]> {
         return this.http.get<CompartmentModel[]>(`${this.baseUrl}/compartiments/listandupdate`);
+    }
+
+    importAllCompartmentsInstances(): Observable<ImportAllCompartmentsModel> {
+        return this.http.get<ImportAllCompartmentsModel>(`${this.baseUrl}/compartiments/instancesall`);
+    }
+
+    getInstanceVnic(instanceOcid: string): Observable<InstanceVnicModel> {
+        return this.http.get<InstanceVnicModel>(`${this.baseUrl}/compartiments/instances/${encodeURIComponent(instanceOcid)}/vnic`);
+    }
+
+    getVnicDetails(vnicId: string): Observable<VnicDetailsModel> {
+        return this.http.get<VnicDetailsModel>(`${this.baseUrl}/compartiments/vnics/${encodeURIComponent(vnicId)}`);
     }
 
     createInstance(payload: Partial<InstanceModel>): Observable<InstanceModel> {

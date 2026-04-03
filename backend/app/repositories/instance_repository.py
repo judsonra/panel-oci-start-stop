@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -34,6 +36,18 @@ class InstanceRepository:
         self.session.commit()
         self.session.refresh(instance)
         return instance
+
+    def apply_updates(self, instance: Instance, updates: Mapping[str, object]) -> tuple[Instance, bool]:
+        changed = False
+        for field, value in updates.items():
+            if getattr(instance, field) != value:
+                setattr(instance, field, value)
+                changed = True
+        if changed:
+            self.session.add(instance)
+            self.session.commit()
+            self.session.refresh(instance)
+        return instance, changed
 
     def delete(self, instance: Instance) -> None:
         self.session.delete(instance)

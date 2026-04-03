@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import time
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +42,22 @@ class OCIHealthStatus:
 class OCICompartmentSummary:
     name: str
     ocid: str
+
+
+@dataclass
+class OCIInstanceSummary:
+    name: str
+    ocid: str
+    vcpu: float | None
+    memory_gbs: float | None
+    oci_created_at: datetime | None
+
+
+@dataclass
+class OCIVnicDetails:
+    vnic_id: str
+    public_ip: str | None
+    private_ip: str | None
 
 
 class OCIService:
@@ -296,6 +313,121 @@ class OCIService:
             seen_ocids.add(ocid)
             compartments.append(OCICompartmentSummary(name=name, ocid=ocid))
         return compartments
+
+    def list_instances_by_compartment(self, compartment_ocid: str) -> list[OCIInstanceSummary]:
+        result = self._run(
+            [
+                "compute",
+                "instance",
+                "list",
+                "--compartment-id",
+                compartment_ocid,
+                "--all",
+                "--query",
+                'data[*].{nome:"display-name", id:"id", vcpus:"shape-config"."vcpus", memoria:"shape-config"."memory-in-gbs", criadoEm:"time-created"}',
+                "--profile",
+                self.settings.oci_cli_profile,
+                "--output",
+                "json",
+            ]
+        )
+        if not result.success:
+            raise RuntimeError(result.parsed_error or result.stderr or "OCI instance list failed")
+        try:
+            payload = json.loads(result.stdout or "[]")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("OCI instance list did not return valid JSON") from exc
+        items = payload.get("data") if isinstance(payload, dict) else payload
+        instances: list[OCIInstanceSummary] = []
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("nome")
+            ocid = item.get("id")
+            if not isinstance(name, str) or not isinstance(ocid, str):
+                continue
+            instances.append(
+                OCIInstanceSummary(
+                    name=name,
+                    ocid=ocid,
+                    vcpu=self._to_float(item.get("vcpus")),
+                    memory_gbs=self._to_float(item.get("memoria")),
+                    oci_created_at=self._parse_datetime(item.get("criadoEm")),
+                )
+            )
+        return instances
+
+    def get_instance_vnic_id(self, instance_ocid: str) -> str | None:
+        result = self._run(
+            [
+                "compute",
+                "instance",
+                "list-vnics",
+                "--instance-id",
+                instance_ocid,
+                "--query",
+                "data[0].id",
+                "--raw-output",
+                "--profile",
+                self.settings.oci_cli_profile,
+            ]
+        )
+        if not result.success:
+            raise RuntimeError(result.parsed_error or result.stderr or "OCI instance VNIC lookup failed")
+        output = (result.stdout or "").strip()
+        if output in {"", "null", "None"}:
+            return None
+        return output
+
+    def get_vnic_details(self, vnic_id: str) -> OCIVnicDetails:
+        result = self._run(
+            [
+                "network",
+                "vnic",
+                "get",
+                "--vnic-id",
+                vnic_id,
+                "--query",
+                'data.{ipPublico:"public-ip", ipPrivado:"private-ip"}',
+                "--raw-output",
+                "--profile",
+                self.settings.oci_cli_profile,
+            ]
+        )
+        if not result.success:
+            raise RuntimeError(result.parsed_error or result.stderr or "OCI VNIC details lookup failed")
+        try:
+            payload = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("OCI VNIC details did not return valid JSON") from exc
+        if not isinstance(payload, dict):
+            payload = {}
+        return OCIVnicDetails(
+            vnic_id=vnic_id,
+            public_ip=payload.get("ipPublico") if isinstance(payload.get("ipPublico"), str) else None,
+            private_ip=payload.get("ipPrivado") if isinstance(payload.get("ipPrivado"), str) else None,
+        )
+
+    @staticmethod
+    def _to_float(value: object) -> float | None:
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _parse_datetime(value: object) -> datetime | None:
+        if not isinstance(value, str) or not value:
+            return None
+        normalized = value.replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
 
     @staticmethod
     def _parse_error(stderr: str | None) -> str | None:

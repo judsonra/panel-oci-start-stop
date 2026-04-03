@@ -36,6 +36,12 @@ class InstanceRead(AppBaseModel):
     description: str | None
     enabled: bool
     last_known_state: str | None
+    vcpu: float | None
+    memory_gbs: float | None
+    vnic_id: str | None
+    public_ip: str | None
+    private_ip: str | None
+    oci_created_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -46,3 +52,48 @@ class InstanceActionResult(BaseModel):
     stdout: str | None
     stderr: str | None
 
+
+class InstanceVnicRead(BaseModel):
+    instance_ocid: str
+    vnic_id: str | None
+
+
+class VnicDetailsRead(BaseModel):
+    vnic_id: str
+    public_ip: str | None
+    private_ip: str | None
+
+
+class InstanceImportItemRead(BaseModel):
+    ocid: str
+    name: str
+    status: str
+    message: str | None = None
+    vcpu: float | None = None
+    memory_gbs: float | None = None
+    vnic_id: str | None = None
+    public_ip: str | None = None
+    private_ip: str | None = None
+    oci_created_at: datetime | None = None
+
+
+class CompartmentInstanceImportRead(BaseModel):
+    compartment_ocid: str
+    compartment_name: str
+    total_instances: int
+    created: int
+    updated: int
+    unchanged: int
+    failed: int
+    instances: list[InstanceImportItemRead]
+
+
+class CompartmentInstancesImportRead(BaseModel):
+    total_compartments: int
+    processed_compartments: int
+    total_instances: int
+    created: int
+    updated: int
+    unchanged: int
+    failed: int
+    compartments: list[CompartmentInstanceImportRead]
