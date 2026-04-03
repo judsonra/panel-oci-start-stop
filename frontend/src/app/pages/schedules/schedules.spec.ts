@@ -45,7 +45,7 @@ describe('SchedulesPage', () => {
         apiService = jasmine.createSpyObj<ApiService>('ApiService', ['listSchedules', 'listInstances', 'createSchedule', 'updateSchedule', 'deleteSchedule']);
         apiService.listSchedules.and.returnValue(of([schedule]));
         apiService.listInstances.and.returnValue(of(instances));
-        apiService.createSchedule.and.returnValue(of({ ...schedule, id: 'schedule-2', type: 'one_time', action: 'start', run_at_utc: '2026-03-15T00:00:00.000Z', days_of_week: null, time_utc: null }));
+        apiService.createSchedule.and.returnValue(of({ ...schedule, id: 'schedule-2', type: 'one_time', action: 'start', run_at_utc: '2026-03-15T13:45:00.000Z', days_of_week: null, time_utc: null }));
         apiService.updateSchedule.and.returnValue(of({ ...schedule, enabled: false }));
         apiService.deleteSchedule.and.returnValue(of(void 0));
 
@@ -105,14 +105,15 @@ describe('SchedulesPage', () => {
         expect(component.isOneTime()).toBeFalse();
     });
 
-    it('creates a one-time schedule with UTC start-of-day date and returns to list tab', () => {
+    it('creates a one-time schedule with combined UTC date and time and returns to list tab', () => {
         component.activeTab.set(1);
         component.form.setValue({
             instance: instances[0],
             instance_id: 'instance-1',
             type: 'one_time',
             action: 'start',
-            run_at_utc: new Date('2026-03-15T13:00:00'),
+            run_at_utc: new Date('2026-03-15T00:00:00Z'),
+            run_time_utc: new Date('2026-03-15T13:45:00Z'),
             days_of_week: [],
             time_utc: null,
             enabled: true
@@ -125,7 +126,7 @@ describe('SchedulesPage', () => {
             type: 'one_time',
             action: 'start',
             enabled: true,
-            run_at_utc: '2026-03-15T00:00:00.000Z',
+            run_at_utc: '2026-03-15T13:45:00.000Z',
             days_of_week: null,
             time_utc: null
         });
@@ -142,6 +143,7 @@ describe('SchedulesPage', () => {
             type: 'recurring',
             action: 'restart',
             run_at_utc: null,
+            run_time_utc: null,
             days_of_week: [6, 0, 2],
             time_utc: time,
             enabled: true
@@ -169,6 +171,24 @@ describe('SchedulesPage', () => {
         expect(component.form.controls.action.value).toBe('restart');
         expect(component.form.controls.days_of_week.value).toEqual([0, 1, 2]);
         expect(component.activeTab()).toBe(1);
+    });
+
+    it('loads one-time schedule date and time into the form for editing', () => {
+        const oneTimeSchedule: ScheduleModel = {
+            id: 'schedule-2',
+            instance_id: 'instance-1',
+            instance_name: 'VM Principal',
+            type: 'one_time',
+            action: 'start',
+            run_at_utc: '2026-03-15T13:45:00.000Z',
+            enabled: true
+        };
+
+        component.editSchedule(oneTimeSchedule);
+
+        expect(component.form.controls.run_at_utc.value?.toISOString()).toBe('2026-03-15T13:45:00.000Z');
+        expect(component.form.controls.run_time_utc.value?.getUTCHours()).toBe(13);
+        expect(component.form.controls.run_time_utc.value?.getUTCMinutes()).toBe(45);
     });
 
     it('runs the edit command from the splitbutton menu', () => {
@@ -263,6 +283,7 @@ describe('SchedulesPage', () => {
         text = fixture.nativeElement.textContent;
         expect(text).toContain('Instância');
         expect(text).toContain('Data');
+        expect(text).toContain('Hora');
         expect(text).toContain('Hora UTC');
 
         component.form.controls.type.setValue('recurring');
@@ -278,6 +299,7 @@ describe('SchedulesPage', () => {
             type: 'recurring',
             action: 'start',
             run_at_utc: null,
+            run_time_utc: null,
             days_of_week: [0],
             time_utc: null,
             enabled: true
@@ -289,6 +311,25 @@ describe('SchedulesPage', () => {
         expect(apiService.createSchedule).not.toHaveBeenCalled();
     });
 
+    it('shows validation feedback when one-time schedule is missing time', () => {
+        component.form.setValue({
+            instance: instances[0],
+            instance_id: 'instance-1',
+            type: 'one_time',
+            action: 'start',
+            run_at_utc: new Date('2026-03-15T00:00:00Z'),
+            run_time_utc: null,
+            days_of_week: [],
+            time_utc: null,
+            enabled: true
+        });
+
+        component.save();
+
+        expect(component.feedback()).toBe('Informe a hora da execução única.');
+        expect(apiService.createSchedule).not.toHaveBeenCalled();
+    });
+
     it('surfaces save errors from the api', () => {
         apiService.createSchedule.and.returnValue(throwError(() => ({ error: { detail: 'Erro ao salvar' } })));
         component.form.setValue({
@@ -297,6 +338,7 @@ describe('SchedulesPage', () => {
             type: 'one_time',
             action: 'start',
             run_at_utc: new Date('2026-03-15T13:00:00'),
+            run_time_utc: new Date('2026-03-15T13:15:00'),
             days_of_week: [],
             time_utc: null,
             enabled: true
@@ -314,6 +356,7 @@ describe('SchedulesPage', () => {
             type: 'one_time',
             action: 'start',
             run_at_utc: new Date('2026-03-15T13:00:00'),
+            run_time_utc: new Date('2026-03-15T13:15:00'),
             days_of_week: [],
             time_utc: null,
             enabled: true
