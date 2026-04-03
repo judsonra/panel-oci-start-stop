@@ -581,6 +581,15 @@ select {
     letter-spacing: 0.06em;
 }
 
+.instances-filter-row {
+    display: block;
+}
+
+.instances-filter-row .p-inputtext,
+.instances-filter-row input[pInputText] {
+    width: 100%;
+}
+
 .ocid-cell {
     max-width: 32rem;
     word-break: break-all;

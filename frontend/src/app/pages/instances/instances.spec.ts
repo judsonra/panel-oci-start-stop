@@ -172,6 +172,54 @@ describe('InstancesPage', () => {
         expect(component.error()).toContain('Não foi possível carregar as instâncias');
     });
 
+    it('filters instances locally by name, ocid and ips', () => {
+        component.instances.set([
+            {
+                id: 'instance-1',
+                name: 'App Financeiro',
+                ocid: 'ocid1.instance.oc1..finance',
+                enabled: true,
+                public_ip: '129.10.10.10',
+                private_ip: '10.0.0.10',
+                created_at: '2026-03-12T00:00:00Z',
+                updated_at: '2026-03-12T00:00:00Z'
+            },
+            {
+                id: 'instance-2',
+                name: 'Banco',
+                ocid: 'ocid1.instance.oc1..database',
+                enabled: true,
+                public_ip: null,
+                private_ip: '10.0.0.20',
+                created_at: '2026-03-12T00:00:00Z',
+                updated_at: '2026-03-12T00:00:00Z'
+            }
+        ]);
+
+        component.instanceSearchTerm.set('banco');
+        expect(component.filteredInstances().length).toBe(1);
+        expect(component.filteredInstances()[0].id).toBe('instance-2');
+
+        component.instanceSearchTerm.set('finance');
+        expect(component.filteredInstances().length).toBe(1);
+        expect(component.filteredInstances()[0].id).toBe('instance-1');
+
+        component.instanceSearchTerm.set('129.10');
+        expect(component.filteredInstances().length).toBe(1);
+        expect(component.filteredInstances()[0].id).toBe('instance-1');
+
+        component.instanceSearchTerm.set('10.0.0.20');
+        expect(component.filteredInstances().length).toBe(1);
+        expect(component.filteredInstances()[0].id).toBe('instance-2');
+
+        component.instanceSearchTerm.set('ocid1.instance.oc1..database');
+        expect(component.filteredInstances().length).toBe(1);
+        expect(component.filteredInstances()[0].id).toBe('instance-2');
+
+        component.instanceSearchTerm.set('');
+        expect(component.filteredInstances().length).toBe(2);
+    });
+
     it('opens the confirmation dialog before refreshing statuses', () => {
         component.openRefreshConfirmation();
 
