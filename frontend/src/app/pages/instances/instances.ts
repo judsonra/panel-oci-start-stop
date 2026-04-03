@@ -199,8 +199,18 @@ import { ApiErrorResponse, ImportAllCompartmentsModel, InstanceModel } from '@/a
                             <p-message severity="error" [text]="error() || ''"></p-message>
                         }
 
+                        <section class="table-filter-row instances-filter-row">
+                            <input
+                                pInputText
+                                [ngModel]="instanceSearchTerm()"
+                                [ngModelOptions]="{ standalone: true }"
+                                placeholder="Filtrar por nome, OCID, IP público ou IP privado"
+                                (ngModelChange)="instanceSearchTerm.set($event)"
+                            />
+                        </section>
+
                         <div class="table-shell">
-                            <p-table [value]="instances()" [loading]="loading()" dataKey="id" responsiveLayout="scroll">
+                            <p-table [value]="filteredInstances()" [loading]="loading()" dataKey="id" responsiveLayout="scroll">
                                 <ng-template pTemplate="header">
                                     <tr>
                                         <th>Nome</th>
@@ -359,6 +369,7 @@ export class InstancesPage implements OnInit {
     readonly refreshConfirmationVisible = signal(false);
     readonly refreshProgressVisible = signal(false);
     readonly refreshingStatuses = signal(false);
+    readonly instanceSearchTerm = signal('');
     readonly refreshProgressCount = signal(0);
     readonly refreshProgressTotal = signal(0);
     readonly refreshCurrentInstanceName = signal<string | null>(null);
@@ -374,6 +385,18 @@ export class InstancesPage implements OnInit {
     readonly refreshProgressPercent = computed(() => {
         const total = this.refreshProgressTotal();
         return total === 0 ? 0 : Math.round((this.refreshProgressCount() / total) * 100);
+    });
+    readonly filteredInstances = computed(() => {
+        const query = this.instanceSearchTerm().trim().toLowerCase();
+        const items = this.instances();
+        if (!query) {
+            return items;
+        }
+
+        return items.filter((instance) =>
+            [instance.name, instance.ocid, instance.public_ip ?? '', instance.private_ip ?? '']
+                .some((value) => value.toLowerCase().includes(query))
+        );
     });
     readonly autoRegisterCanConfirm = computed(() => this.autoRegisterConfirmationText().trim() === 'Estou ciente');
     readonly autoRegisterProgressTitle = computed(() => {
