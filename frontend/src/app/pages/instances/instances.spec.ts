@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Observable, of, throwError } from 'rxjs';
+import { AutoCompleteCompleteEvent } from 'primeng/autocomplete';
 import { ApiService } from '@/app/core/api.service';
 import { InstancesPage } from './instances';
 
@@ -146,7 +147,73 @@ describe('InstancesPage', () => {
         expect(component.form.invalid).toBeTrue();
     });
 
-    it('saves a valid payload and returns to the first tab', () => {
+    it('filters autocomplete suggestions for name and ocid', () => {
+        component.instances.set([
+            {
+                id: 'instance-1',
+                name: 'App Financeiro',
+                ocid: 'ocid1.instance.oc1..finance',
+                enabled: true,
+                created_at: '2026-03-12T00:00:00Z',
+                updated_at: '2026-03-12T00:00:00Z'
+            },
+            {
+                id: 'instance-2',
+                name: 'Banco UTC',
+                ocid: 'ocid1.instance.oc1..database',
+                enabled: true,
+                created_at: '2026-03-12T00:00:00Z',
+                updated_at: '2026-03-12T00:00:00Z'
+            }
+        ]);
+
+        component.filterNameSuggestions({ query: 'banco', originalEvent: new Event('input') } as AutoCompleteCompleteEvent);
+        component.filterOcidSuggestions({ query: 'finance', originalEvent: new Event('input') } as AutoCompleteCompleteEvent);
+
+        expect(component.nameSuggestions()).toEqual(['Banco UTC']);
+        expect(component.ocidSuggestions()).toEqual(['ocid1.instance.oc1..finance']);
+    });
+
+    it('selects an existing instance by name and fills the ocid, description and enabled state', () => {
+        component.instances.set([
+            {
+                id: 'instance-1',
+                name: 'App Financeiro',
+                ocid: 'ocid1.instance.oc1..finance',
+                description: 'Descrição existente',
+                enabled: false,
+                created_at: '2026-03-12T00:00:00Z',
+                updated_at: '2026-03-12T00:00:00Z'
+            }
+        ]);
+
+        component.selectExistingInstanceByName('App Financeiro');
+
+        expect(component.selectedExistingInstanceId()).toBe('instance-1');
+        expect(component.form.controls.ocid.value).toBe('ocid1.instance.oc1..finance');
+        expect(component.form.controls.description.value).toBe('Descrição existente');
+        expect(component.form.controls.enabled.value).toBeFalse();
+    });
+
+    it('selects an existing instance by ocid and fills the name', () => {
+        component.instances.set([
+            {
+                id: 'instance-1',
+                name: 'App Financeiro',
+                ocid: 'ocid1.instance.oc1..finance',
+                enabled: true,
+                created_at: '2026-03-12T00:00:00Z',
+                updated_at: '2026-03-12T00:00:00Z'
+            }
+        ]);
+
+        component.selectExistingInstanceByOcid('ocid1.instance.oc1..finance');
+
+        expect(component.selectedExistingInstanceId()).toBe('instance-1');
+        expect(component.form.controls.name.value).toBe('App Financeiro');
+    });
+
+    it('saves a new valid payload and returns to the first tab', () => {
         component.activeTab.set(1);
         component.form.setValue({
             name: 'App Financeiro',
@@ -164,6 +231,50 @@ describe('InstancesPage', () => {
             enabled: true
         });
         expect(component.activeTab()).toBe(0);
+    });
+
+    it('updates an existing instance when one is selected', () => {
+        component.instances.set([
+            {
+                id: 'instance-1',
+                name: 'App Financeiro',
+                ocid: 'ocid1.instance.oc1..finance',
+                description: 'Descrição existente',
+                enabled: true,
+                created_at: '2026-03-12T00:00:00Z',
+                updated_at: '2026-03-12T00:00:00Z'
+            }
+        ]);
+        component.selectExistingInstanceByName('App Financeiro');
+        component.form.patchValue({
+            description: 'Nova descrição',
+            enabled: false
+        });
+
+        component.save();
+
+        expect(apiService.updateInstance).toHaveBeenCalledWith('instance-1', {
+            description: 'Nova descrição',
+            enabled: false
+        });
+    });
+
+    it('leaves edit mode when name or ocid no longer matches the selected existing instance', () => {
+        component.instances.set([
+            {
+                id: 'instance-1',
+                name: 'App Financeiro',
+                ocid: 'ocid1.instance.oc1..finance',
+                enabled: true,
+                created_at: '2026-03-12T00:00:00Z',
+                updated_at: '2026-03-12T00:00:00Z'
+            }
+        ]);
+        component.selectExistingInstanceByName('App Financeiro');
+
+        component.form.controls.ocid.setValue('ocid1.instance.oc1..novo');
+
+        expect(component.selectedExistingInstanceId()).toBeNull();
     });
 
     it('surfaces a loading error when listing instances fails', () => {
