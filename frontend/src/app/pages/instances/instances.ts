@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { finalize, firstValueFrom } from 'rxjs';
+import { AutoCompleteCompleteEvent, AutoCompleteModule } from 'primeng/autocomplete';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -19,7 +20,7 @@ import { ApiErrorResponse, ImportAllCompartmentsModel, InstanceModel } from '@/a
 @Component({
     selector: 'app-instances-page',
     standalone: true,
-    imports: [CommonModule, FormsModule, ReactiveFormsModule, ButtonModule, DialogModule, InputTextModule, TextareaModule, MessageModule, ProgressBarModule, TableModule, TabsModule, TagModule, ToggleSwitchModule, TooltipModule],
+    imports: [CommonModule, FormsModule, ReactiveFormsModule, AutoCompleteModule, ButtonModule, DialogModule, InputTextModule, TextareaModule, MessageModule, ProgressBarModule, TableModule, TabsModule, TagModule, ToggleSwitchModule, TooltipModule],
     template: `
         <section class="page-header">
             <div>
@@ -314,14 +315,42 @@ import { ApiErrorResponse, ImportAllCompartmentsModel, InstanceModel } from '@/a
                     </p-tabpanel>
                     <p-tabpanel [value]="1">
                         <form class="form-panel" [formGroup]="form" (ngSubmit)="save()">
+                            @if (selectedExistingInstanceId()) {
+                                <p-message severity="info" text="Instância existente carregada para edição. O salvamento atualizará descrição e habilitação."></p-message>
+                            }
+
                             <label>
                                 <span>Nome</span>
-                                <input pInputText formControlName="name" placeholder="Ex.: Aplicação Financeira" />
+                                <p-autocomplete
+                                    formControlName="name"
+                                    [suggestions]="nameSuggestions()"
+                                    [dropdown]="true"
+                                    dropdownMode="blank"
+                                    [completeOnFocus]="true"
+                                    [showClear]="true"
+                                    [forceSelection]="false"
+                                    placeholder="Selecione ou digite o nome da instância"
+                                    (completeMethod)="filterNameSuggestions($event)"
+                                    (onSelect)="selectExistingInstanceByName($event.value)"
+                                    (onClear)="clearExistingSelectionIfNeeded()"
+                                />
                             </label>
 
                             <label>
                                 <span>OCID da instância</span>
-                                <input pInputText formControlName="ocid" placeholder="ocid1.instance.oc1..." />
+                                <p-autocomplete
+                                    formControlName="ocid"
+                                    [suggestions]="ocidSuggestions()"
+                                    [dropdown]="true"
+                                    dropdownMode="blank"
+                                    [completeOnFocus]="true"
+                                    [showClear]="true"
+                                    [forceSelection]="false"
+                                    placeholder="Selecione ou digite o OCID da instância"
+                                    (completeMethod)="filterOcidSuggestions($event)"
+                                    (onSelect)="selectExistingInstanceByOcid($event.value)"
+                                    (onClear)="clearExistingSelectionIfNeeded()"
+                                />
                             </label>
 
                             <label>
@@ -358,6 +387,8 @@ export class InstancesPage implements OnInit {
     private readonly formBuilder = inject(FormBuilder);
 
     readonly instances = signal<InstanceModel[]>([]);
+    readonly nameSuggestions = signal<string[]>([]);
+    readonly ocidSuggestions = signal<string[]>([]);
     readonly loading = signal(false);
     readonly saving = signal(false);
     readonly error = signal<string | null>(null);
@@ -382,6 +413,7 @@ export class InstancesPage implements OnInit {
     readonly autoRegisterResult = signal<ImportAllCompartmentsModel | null>(null);
     readonly autoRegisterCompleted = signal(false);
     readonly autoRegisterConfirmationText = signal('');
+    readonly selectedExistingInstanceId = signal<string | null>(null);
     readonly refreshProgressPercent = computed(() => {
         const total = this.refreshProgressTotal();
         return total === 0 ? 0 : Math.round((this.refreshProgressCount() / total) * 100);
@@ -415,6 +447,8 @@ export class InstancesPage implements OnInit {
     });
 
     ngOnInit(): void {
+        this.form.controls.name.valueChanges.subscribe(() => this.syncSelectionFromCurrentValues());
+        this.form.controls.ocid.valueChanges.subscribe(() => this.syncSelectionFromCurrentValues());
         this.loadInstances();
     }
 
@@ -425,9 +459,43 @@ export class InstancesPage implements OnInit {
             .listInstances()
             .pipe(finalize(() => this.loading.set(false)))
             .subscribe({
-                next: (instances) => this.instances.set(instances),
+                next: (instances) => {
+                    this.instances.set(instances);
+                    this.nameSuggestions.set(instances.map((instance) => instance.name));
+                    this.ocidSuggestions.set(instances.map((instance) => instance.ocid));
+                },
                 error: () => this.error.set('Não foi possível carregar as instâncias.')
             });
+    }
+
+    filterNameSuggestions(event: AutoCompleteCompleteEvent): void {
+        const query = (event.query ?? '').trim().toLowerCase();
+        const names = this.instances().map((instance) => instance.name);
+        this.nameSuggestions.set(!query ? names : names.filter((name) => name.toLowerCase().includes(query)));
+    }
+
+    filterOcidSuggestions(event: AutoCompleteCompleteEvent): void {
+        const query = (event.query ?? '').trim().toLowerCase();
+        const ocids = this.instances().map((instance) => instance.ocid);
+        this.ocidSuggestions.set(!query ? ocids : ocids.filter((ocid) => ocid.toLowerCase().includes(query)));
+    }
+
+    selectExistingInstanceByName(name: string): void {
+        const instance = this.instances().find((item) => item.name === name);
+        if (instance) {
+            this.applyExistingInstanceSelection(instance);
+        }
+    }
+
+    selectExistingInstanceByOcid(ocid: string): void {
+        const instance = this.instances().find((item) => item.ocid === ocid);
+        if (instance) {
+            this.applyExistingInstanceSelection(instance);
+        }
+    }
+
+    clearExistingSelectionIfNeeded(): void {
+        queueMicrotask(() => this.syncSelectionFromCurrentValues());
     }
 
     openRefreshConfirmation(): void {
@@ -599,19 +667,17 @@ export class InstancesPage implements OnInit {
         this.error.set(null);
         this.actionFeedback.set(null);
 
-        this.api
-            .createInstance(this.form.getRawValue())
-            .pipe(finalize(() => this.saving.set(false)))
-            .subscribe({
+        const selectedExistingId = this.selectedExistingInstanceId();
+        const payload = this.form.getRawValue();
+        const request$ = selectedExistingId
+            ? this.api.updateInstance(selectedExistingId, { description: payload.description, enabled: payload.enabled })
+            : this.api.createInstance(payload);
+
+        request$.pipe(finalize(() => this.saving.set(false))).subscribe({
                 next: () => {
-                    this.form.reset({
-                        name: '',
-                        ocid: '',
-                        description: '',
-                        enabled: true
-                    });
+                    this.resetForm();
                     this.actionFeedbackSeverity.set('success');
-                    this.actionFeedback.set('Instância cadastrada com sucesso.');
+                    this.actionFeedback.set(selectedExistingId ? 'Instância atualizada com sucesso.' : 'Instância cadastrada com sucesso.');
                     this.activeTab.set(0);
                     this.loadInstances();
                 },
@@ -785,5 +851,45 @@ export class InstancesPage implements OnInit {
             next.delete(instanceId);
         }
         this.refreshingRowIds.set(next);
+    }
+
+    private applyExistingInstanceSelection(instance: InstanceModel): void {
+        this.selectedExistingInstanceId.set(instance.id);
+        this.form.patchValue(
+            {
+                name: instance.name,
+                ocid: instance.ocid,
+                description: instance.description ?? '',
+                enabled: instance.enabled
+            },
+            { emitEvent: false }
+        );
+    }
+
+    private syncSelectionFromCurrentValues(): void {
+        const name = this.form.controls.name.value.trim();
+        const ocid = this.form.controls.ocid.value.trim();
+        const matched = this.instances().find((instance) => instance.name === name && instance.ocid === ocid);
+
+        if (matched) {
+            if (this.selectedExistingInstanceId() !== matched.id) {
+                this.applyExistingInstanceSelection(matched);
+            }
+            return;
+        }
+
+        this.selectedExistingInstanceId.set(null);
+    }
+
+    private resetForm(): void {
+        this.selectedExistingInstanceId.set(null);
+        this.form.reset({
+            name: '',
+            ocid: '',
+            description: '',
+            enabled: true
+        });
+        this.nameSuggestions.set(this.instances().map((instance) => instance.name));
+        this.ocidSuggestions.set(this.instances().map((instance) => instance.ocid));
     }
 }
