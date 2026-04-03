@@ -148,6 +148,13 @@ interface DayOption {
                                 </label>
                             }
 
+                            @if (isOneTime()) {
+                                <label>
+                                    <span>Hora</span>
+                                    <p-datepicker formControlName="run_time_utc" [timeOnly]="true" hourFormat="24" appendTo="body" />
+                                </label>
+                            }
+
                             @if (isRecurring()) {
                                 <label>
                                     <span>Dias da semana</span>
@@ -235,6 +242,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
         type: this.formBuilder.control<ScheduleTypeValue>('one_time', Validators.required),
         action: this.formBuilder.control<ScheduleActionValue>('start', Validators.required),
         run_at_utc: this.formBuilder.control<Date | null>(null),
+        run_time_utc: this.formBuilder.control<Date | null>(null),
         days_of_week: this.formBuilder.control<number[]>([], { nonNullable: true }),
         time_utc: this.formBuilder.control<Date | null>(null),
         enabled: this.formBuilder.control(true, { nonNullable: true })
@@ -293,7 +301,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
         if (this.isOneTime()) {
             this.form.patchValue({ days_of_week: [], time_utc: null });
         } else {
-            this.form.patchValue({ run_at_utc: null });
+            this.form.patchValue({ run_at_utc: null, run_time_utc: null });
         }
     }
 
@@ -311,7 +319,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
             type: raw.type ?? 'one_time',
             action: raw.action ?? 'start',
             enabled: raw.enabled ?? true,
-            run_at_utc: raw.type === 'one_time' && raw.run_at_utc ? this.toUtcStartOfDayIso(raw.run_at_utc) : null,
+            run_at_utc: raw.type === 'one_time' && raw.run_at_utc && raw.run_time_utc ? this.toUtcDateTimeIso(raw.run_at_utc, raw.run_time_utc) : null,
             days_of_week: raw.type === 'recurring' ? raw.days_of_week : null,
             time_utc: raw.type === 'recurring' && raw.time_utc ? this.toHourMinute(raw.time_utc) : null
         };
@@ -366,7 +374,17 @@ export class SchedulesPage implements OnInit, OnDestroy {
 
     executionLabel(schedule: ScheduleModel): string {
         if (schedule.type === 'one_time') {
-            return schedule.run_at_utc ? new Date(schedule.run_at_utc).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '-';
+            return schedule.run_at_utc
+                ? new Date(schedule.run_at_utc).toLocaleString('pt-BR', {
+                      timeZone: 'UTC',
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false
+                  })
+                : '-';
         }
 
         const days = (schedule.days_of_week ?? [])
@@ -383,12 +401,14 @@ export class SchedulesPage implements OnInit, OnDestroy {
     editSchedule(schedule: ScheduleModel): void {
         const instance = this.instances().find((item) => item.id === schedule.instance_id) ?? null;
         this.editingScheduleId.set(schedule.id);
+        const runAtUtc = schedule.run_at_utc ? new Date(schedule.run_at_utc) : null;
         this.form.reset({
             instance,
             instance_id: schedule.instance_id,
             type: schedule.type,
             action: schedule.action,
-            run_at_utc: schedule.run_at_utc ? new Date(schedule.run_at_utc) : null,
+            run_at_utc: runAtUtc,
+            run_time_utc: runAtUtc,
             days_of_week: schedule.days_of_week ?? [],
             time_utc: schedule.time_utc ? this.fromHourMinute(schedule.time_utc) : null,
             enabled: schedule.enabled
@@ -406,6 +426,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
             type: 'one_time',
             action: 'start',
             run_at_utc: null,
+            run_time_utc: null,
             days_of_week: [],
             time_utc: null,
             enabled: true
@@ -483,6 +504,11 @@ export class SchedulesPage implements OnInit, OnDestroy {
                 this.feedback.set('Informe a data da execução única.');
                 return false;
             }
+            if (!this.form.controls.run_time_utc.value) {
+                this.feedbackSeverity.set('error');
+                this.feedback.set('Informe a hora da execução única.');
+                return false;
+            }
             return true;
         }
 
@@ -530,8 +556,8 @@ export class SchedulesPage implements OnInit, OnDestroy {
         }, 1000);
     }
 
-    private toUtcStartOfDayIso(value: Date): string {
-        return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0)).toISOString();
+    private toUtcDateTimeIso(date: Date, time: Date): string {
+        return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), time.getHours(), time.getMinutes(), 0, 0)).toISOString();
     }
 
     private toHourMinute(value: Date): string {
