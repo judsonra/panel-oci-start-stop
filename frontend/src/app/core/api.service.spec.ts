@@ -61,4 +61,17 @@ describe('ApiService', () => {
         expect(syncRequest.request.method).toBe('GET');
         syncRequest.flush([]);
     });
+
+    it('uses the backend api prefix for group endpoints', () => {
+        service.listGroups().subscribe();
+        service.getGroupTree().subscribe();
+
+        const listRequest = httpMock.expectOne('http://localhost:8000/api/groups');
+        expect(listRequest.request.method).toBe('GET');
+        listRequest.flush([]);
+
+        const treeRequest = httpMock.expectOne('http://localhost:8000/api/groups/tree');
+        expect(treeRequest.request.method).toBe('GET');
+        treeRequest.flush([]);
+    });
 });

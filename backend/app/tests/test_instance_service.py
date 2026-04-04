@@ -142,6 +142,7 @@ def test_import_all_compartment_instances_creates_records_and_enriches_network_f
     assert first.public_ip == "129.1.1.1"
     assert first.private_ip == "10.0.0.10"
     assert first.oci_created_at is not None
+    assert first.compartment_id is not None
     assert first.enabled is True
     assert first.description is None
 
@@ -175,6 +176,7 @@ def test_import_all_compartment_instances_updates_existing_ocid_and_preserves_lo
     assert updated.description == "manter"
     assert updated.enabled is False
     assert updated.last_known_state == "STOPPED"
+    assert updated.compartment_id is not None
     assert updated.vcpu == 2.0
     assert updated.public_ip == "129.1.1.1"
 

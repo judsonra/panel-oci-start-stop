@@ -3,6 +3,8 @@ import { AppLayout } from './app/layout/component/app.layout';
 import { CompartmentsPage } from './app/pages/compartments/compartments';
 import { Dashboard } from './app/pages/dashboard/dashboard';
 import { ExecutionsPage } from './app/pages/executions/executions';
+import { GroupFormPage } from './app/pages/groups/group-form';
+import { GroupsPage } from './app/pages/groups/groups';
 import { InstancesPage } from './app/pages/instances/instances';
 import { CostByCompartmentPage } from './app/pages/reports/cost-by-compartment';
 import { SchedulesPage } from './app/pages/schedules/schedules';
@@ -14,6 +16,9 @@ export const appRoutes: Routes = [
         children: [
             { path: '', component: Dashboard },
             { path: 'instances', component: InstancesPage },
+            { path: 'groups', component: GroupsPage },
+            { path: 'groups/new', component: GroupFormPage },
+            { path: 'groups/:groupId/edit', component: GroupFormPage },
             { path: 'schedules', component: SchedulesPage },
             { path: 'compartiments', component: CompartmentsPage },
             { path: 'executions', component: ExecutionsPage },

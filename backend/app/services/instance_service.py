@@ -72,10 +72,14 @@ class InstanceService:
     def create_instance(self, payload: InstanceCreate) -> Instance:
         if self.instances.get_by_ocid(payload.ocid):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Instance OCID already registered")
+        if payload.compartment_id and self.session.get(Compartment, payload.compartment_id) is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Compartment not found")
         return self.instances.create(payload)
 
     def update_instance(self, instance_id: str, payload: InstanceUpdate) -> Instance:
         instance = self.get_instance(instance_id)
+        if payload.compartment_id and self.session.get(Compartment, payload.compartment_id) is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Compartment not found")
         return self.instances.update(instance, payload)
 
     def delete_instance(self, instance_id: str) -> None:
@@ -171,6 +175,7 @@ class InstanceService:
                 vnic_id = self.oci_service.get_instance_vnic_id(remote.ocid)
                 vnic_details = self.oci_service.get_vnic_details(vnic_id) if vnic_id else OCIVnicDetails(vnic_id="", public_ip=None, private_ip=None)
                 status_name = self._upsert_imported_instance(
+                    compartment.id,
                     remote.name,
                     remote.ocid,
                     remote.vcpu,
@@ -230,6 +235,7 @@ class InstanceService:
 
     def _upsert_imported_instance(
         self,
+        compartment_id: str,
         name: str,
         ocid: str,
         vcpu: float | None,
@@ -245,6 +251,7 @@ class InstanceService:
                 InstanceCreate(
                     name=name,
                     ocid=ocid,
+                    compartment_id=compartment_id,
                     description=None,
                     enabled=True,
                 )
@@ -256,6 +263,7 @@ class InstanceService:
                     {
                         "vcpu": vcpu,
                         "memory_gbs": memory_gbs,
+                        "compartment_id": compartment_id,
                         "vnic_id": vnic_id,
                         "public_ip": public_ip,
                         "private_ip": private_ip,
@@ -267,8 +275,9 @@ class InstanceService:
         _, changed = self.instances.apply_updates(
             existing,
             {
-                "name": name,
-                "vcpu": vcpu,
+            "name": name,
+            "compartment_id": compartment_id,
+            "vcpu": vcpu,
                 "memory_gbs": memory_gbs,
                 "vnic_id": vnic_id,
                 "public_ip": public_ip,

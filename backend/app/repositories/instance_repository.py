@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.instance import Instance
 from app.schemas.instance import InstanceCreate, InstanceUpdate
@@ -14,10 +14,12 @@ class InstanceRepository:
         self.session = session
 
     def list(self) -> list[Instance]:
-        return list(self.session.scalars(select(Instance).order_by(Instance.created_at.desc())).all())
+        statement = select(Instance).options(selectinload(Instance.compartment)).order_by(Instance.created_at.desc())
+        return list(self.session.scalars(statement).all())
 
     def get(self, instance_id: str) -> Instance | None:
-        return self.session.get(Instance, instance_id)
+        statement = select(Instance).options(selectinload(Instance.compartment)).where(Instance.id == instance_id)
+        return self.session.scalar(statement)
 
     def get_by_ocid(self, ocid: str) -> Instance | None:
         return self.session.scalar(select(Instance).where(Instance.ocid == ocid))

@@ -20,11 +20,11 @@ describe('AppMenu', () => {
         fixture.detectChanges();
     });
 
-    it('includes Compartimentos below Agendamentos in the instances menu', () => {
+    it('includes Grupos in the instances menu', () => {
         const instancesGroup = component.model.find((item) => item.label === 'Instâncias');
         const labels = (instancesGroup?.items ?? []).map((item) => item.label);
 
-        expect(labels).toEqual(['Instâncias', 'Agendamentos', 'Compartimentos']);
+        expect(labels).toEqual(['Instâncias', 'Grupos', 'Agendamentos', 'Compartimentos']);
         expect(instancesGroup?.expanded).toBeTrue();
     });
 });
