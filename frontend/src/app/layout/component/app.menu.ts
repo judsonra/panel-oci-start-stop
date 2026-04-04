@@ -53,12 +53,21 @@ export class AppMenu {
             {
                 label: 'Instâncias',
                 icon: 'pi pi-desktop',
-                expanded: normalizedPath.startsWith('/instances') || normalizedPath.startsWith('/schedules') || normalizedPath.startsWith('/compartiments'),
+                expanded:
+                    normalizedPath.startsWith('/instances') ||
+                    normalizedPath.startsWith('/groups') ||
+                    normalizedPath.startsWith('/schedules') ||
+                    normalizedPath.startsWith('/compartiments'),
                 items: [
                     {
                         label: 'Instâncias',
                         icon: 'pi pi-server',
                         routerLink: ['/instances']
+                    },
+                    {
+                        label: 'Grupos',
+                        icon: 'pi pi-objects-column',
+                        routerLink: ['/groups']
                     },
                     {
                         label: 'Agendamentos',

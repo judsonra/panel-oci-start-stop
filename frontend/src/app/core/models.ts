@@ -2,6 +2,7 @@ export interface InstanceModel {
     id: string;
     name: string;
     ocid: string;
+    compartment_id?: string | null;
     description?: string | null;
     enabled: boolean;
     last_known_state?: string | null;
@@ -133,6 +134,34 @@ export interface ImportAllCompartmentsModel {
     unchanged: number;
     failed: number;
     compartments: ImportedCompartmentModel[];
+}
+
+export interface GroupInstanceModel {
+    id: string;
+    name: string;
+    ocid: string;
+    compartment_id?: string | null;
+}
+
+export interface GroupModel {
+    id: string;
+    name: string;
+    instance_count: number;
+    instances: GroupInstanceModel[];
+    created_at: string;
+    updated_at: string;
+}
+
+export interface GroupTreeInstanceModel {
+    id: string;
+    name: string;
+    ocid: string;
+}
+
+export interface GroupTreeCompartmentModel {
+    id: string;
+    name: string;
+    instances: GroupTreeInstanceModel[];
 }
 
 export interface BackendHealthResponse {

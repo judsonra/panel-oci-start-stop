@@ -4,12 +4,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import text
 
-from app.api.deps import get_compartment_service, get_instance_service, get_schedule_service
+from app.api.deps import get_compartment_service, get_group_service, get_instance_service, get_schedule_service
 from app.core.security import CurrentUser, get_current_user
 from app.repositories.execution_repository import ExecutionRepository
 from app.schemas.compartment import CompartmentRead
 from app.schemas.common import HealthResponse
 from app.schemas.execution import ExecutionLogRead
+from app.schemas.group import GroupCreate, GroupRead, GroupTreeCompartmentRead, GroupTreeInstanceRead, GroupUpdate
 from app.schemas.instance import (
     CompartmentInstancesImportRead,
     InstanceActionResult,
@@ -21,6 +22,7 @@ from app.schemas.instance import (
 )
 from app.schemas.schedule import ScheduleCreate, ScheduleRead, ScheduleUpdate
 from app.services.compartment_service import CompartmentService
+from app.services.group_service import GroupService
 from app.services.instance_service import InstanceService
 from app.services.oci_cli import OCIService, get_oci_service
 from app.services.schedule_service import ScheduleService
@@ -33,6 +35,26 @@ router = APIRouter(prefix="/api")
 
 def serialize_schedule(schedule) -> ScheduleRead:
     return ScheduleRead.model_validate(schedule).model_copy(update={"instance_name": schedule.instance.name if schedule.instance else None})
+
+
+def serialize_group(group) -> GroupRead:
+    instances = sorted(group.instances, key=lambda item: (item.name.casefold(), item.ocid.casefold()))
+    return GroupRead(
+        id=group.id,
+        name=group.name,
+        instance_count=len(instances),
+        instances=[
+            {
+                "id": item.id,
+                "name": item.name,
+                "ocid": item.ocid,
+                "compartment_id": item.compartment_id,
+            }
+            for item in instances
+        ],
+        created_at=group.created_at,
+        updated_at=group.updated_at,
+    )
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -74,6 +96,71 @@ def list_instances(
     service: InstanceService = Depends(get_instance_service),
 ) -> list[InstanceRead]:
     return [InstanceRead.model_validate(item) for item in service.list_instances()]
+
+
+@router.get("/groups", response_model=list[GroupRead])
+def list_groups(
+    _: CurrentUser = Depends(get_current_user),
+    service: GroupService = Depends(get_group_service),
+) -> list[GroupRead]:
+    return [serialize_group(item) for item in service.list_groups()]
+
+
+@router.get("/groups/tree", response_model=list[GroupTreeCompartmentRead])
+def list_group_tree(
+    _: CurrentUser = Depends(get_current_user),
+    service: GroupService = Depends(get_group_service),
+) -> list[GroupTreeCompartmentRead]:
+    compartments = service.list_tree()
+    return [
+        GroupTreeCompartmentRead(
+            id=compartment.id,
+            name=compartment.name,
+            instances=[
+                GroupTreeInstanceRead(id=item.id, name=item.name, ocid=item.ocid)
+                for item in compartment.instances
+            ],
+        )
+        for compartment in compartments
+    ]
+
+
+@router.get("/groups/{group_id}", response_model=GroupRead)
+def get_group(
+    group_id: str,
+    _: CurrentUser = Depends(get_current_user),
+    service: GroupService = Depends(get_group_service),
+) -> GroupRead:
+    return serialize_group(service.get_group(group_id))
+
+
+@router.post("/groups", response_model=GroupRead, status_code=status.HTTP_201_CREATED)
+def create_group(
+    payload: GroupCreate,
+    _: CurrentUser = Depends(get_current_user),
+    service: GroupService = Depends(get_group_service),
+) -> GroupRead:
+    return serialize_group(service.create_group(payload.name, payload.instance_ids))
+
+
+@router.put("/groups/{group_id}", response_model=GroupRead)
+def update_group(
+    group_id: str,
+    payload: GroupUpdate,
+    _: CurrentUser = Depends(get_current_user),
+    service: GroupService = Depends(get_group_service),
+) -> GroupRead:
+    return serialize_group(service.update_group(group_id, payload.name, payload.instance_ids))
+
+
+@router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_group(
+    group_id: str,
+    _: CurrentUser = Depends(get_current_user),
+    service: GroupService = Depends(get_group_service),
+) -> Response:
+    service.delete_group(group_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/compartiments/list", response_model=list[CompartmentRead])

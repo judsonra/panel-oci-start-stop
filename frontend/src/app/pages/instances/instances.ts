@@ -15,7 +15,7 @@ import { TextareaModule } from 'primeng/textarea';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TooltipModule } from 'primeng/tooltip';
 import { ApiService } from '@/app/core/api.service';
-import { ApiErrorResponse, ImportAllCompartmentsModel, InstanceModel } from '@/app/core/models';
+import { ApiErrorResponse, CompartmentModel, ImportAllCompartmentsModel, InstanceModel } from '@/app/core/models';
 
 @Component({
     selector: 'app-instances-page',
@@ -354,6 +354,16 @@ import { ApiErrorResponse, ImportAllCompartmentsModel, InstanceModel } from '@/a
                             </label>
 
                             <label>
+                                <span>Compartimento</span>
+                                <select formControlName="compartment_id">
+                                    <option value="">Selecione um compartimento</option>
+                                    @for (compartment of compartments(); track compartment.id) {
+                                        <option [value]="compartment.id">{{ compartment.name }}</option>
+                                    }
+                                </select>
+                            </label>
+
+                            <label>
                                 <span>Descrição</span>
                                 <textarea pTextarea formControlName="description" rows="4" placeholder="Contexto operacional ou observações"></textarea>
                             </label>
@@ -387,6 +397,7 @@ export class InstancesPage implements OnInit {
     private readonly formBuilder = inject(FormBuilder);
 
     readonly instances = signal<InstanceModel[]>([]);
+    readonly compartments = signal<CompartmentModel[]>([]);
     readonly nameSuggestions = signal<string[]>([]);
     readonly ocidSuggestions = signal<string[]>([]);
     readonly loading = signal(false);
@@ -442,6 +453,7 @@ export class InstancesPage implements OnInit {
     readonly form = this.formBuilder.nonNullable.group({
         name: ['', [Validators.required, Validators.maxLength(120)]],
         ocid: ['', [Validators.required, Validators.pattern(/^ocid1\.instance\..+/)]],
+        compartment_id: ['', Validators.required],
         description: [''],
         enabled: [true]
     });
@@ -449,7 +461,15 @@ export class InstancesPage implements OnInit {
     ngOnInit(): void {
         this.form.controls.name.valueChanges.subscribe(() => this.syncSelectionFromCurrentValues());
         this.form.controls.ocid.valueChanges.subscribe(() => this.syncSelectionFromCurrentValues());
+        this.loadCompartments();
         this.loadInstances();
+    }
+
+    loadCompartments(): void {
+        this.api.listCompartments().subscribe({
+            next: (compartments) => this.compartments.set(compartments),
+            error: () => this.error.set('Não foi possível carregar os compartimentos.')
+        });
     }
 
     loadInstances(): void {
@@ -670,7 +690,7 @@ export class InstancesPage implements OnInit {
         const selectedExistingId = this.selectedExistingInstanceId();
         const payload = this.form.getRawValue();
         const request$ = selectedExistingId
-            ? this.api.updateInstance(selectedExistingId, { description: payload.description, enabled: payload.enabled })
+            ? this.api.updateInstance(selectedExistingId, { compartment_id: payload.compartment_id, description: payload.description, enabled: payload.enabled })
             : this.api.createInstance(payload);
 
         request$.pipe(finalize(() => this.saving.set(false))).subscribe({
@@ -859,6 +879,7 @@ export class InstancesPage implements OnInit {
             {
                 name: instance.name,
                 ocid: instance.ocid,
+                compartment_id: instance.compartment_id ?? '',
                 description: instance.description ?? '',
                 enabled: instance.enabled
             },
@@ -886,6 +907,7 @@ export class InstancesPage implements OnInit {
         this.form.reset({
             name: '',
             ocid: '',
+            compartment_id: '',
             description: '',
             enabled: true
         });

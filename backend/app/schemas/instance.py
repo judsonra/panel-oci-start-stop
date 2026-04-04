@@ -8,6 +8,7 @@ from app.schemas.common import AppBaseModel
 class InstanceBase(BaseModel):
     name: str = Field(min_length=3, max_length=120)
     ocid: str = Field(min_length=20, max_length=255)
+    compartment_id: str | None = None
     description: str | None = Field(default=None, max_length=500)
     enabled: bool = True
 
@@ -25,6 +26,7 @@ class InstanceCreate(InstanceBase):
 
 class InstanceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=3, max_length=120)
+    compartment_id: str | None = None
     description: str | None = Field(default=None, max_length=500)
     enabled: bool | None = None
 
@@ -33,6 +35,7 @@ class InstanceRead(AppBaseModel):
     id: str
     name: str
     ocid: str
+    compartment_id: str | None
     description: str | None
     enabled: bool
     last_known_state: str | None

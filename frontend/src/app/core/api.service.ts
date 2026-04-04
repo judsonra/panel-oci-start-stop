@@ -6,6 +6,8 @@ import {
     CompartmentModel,
     CostByCompartmentReportModel,
     ExecutionModel,
+    GroupModel,
+    GroupTreeCompartmentModel,
     ImportAllCompartmentsModel,
     InstanceModel,
     InstanceVnicModel,
@@ -66,6 +68,30 @@ export class ApiService {
 
     listInstances(): Observable<InstanceModel[]> {
         return this.http.get<InstanceModel[]>(`${this.baseUrl}/instances`);
+    }
+
+    listGroups(): Observable<GroupModel[]> {
+        return this.http.get<GroupModel[]>(`${this.baseUrl}/groups`);
+    }
+
+    getGroup(groupId: string): Observable<GroupModel> {
+        return this.http.get<GroupModel>(`${this.baseUrl}/groups/${groupId}`);
+    }
+
+    getGroupTree(): Observable<GroupTreeCompartmentModel[]> {
+        return this.http.get<GroupTreeCompartmentModel[]>(`${this.baseUrl}/groups/tree`);
+    }
+
+    createGroup(payload: { name: string; instance_ids: string[] }): Observable<GroupModel> {
+        return this.http.post<GroupModel>(`${this.baseUrl}/groups`, payload);
+    }
+
+    updateGroup(groupId: string, payload: { name: string; instance_ids: string[] }): Observable<GroupModel> {
+        return this.http.put<GroupModel>(`${this.baseUrl}/groups/${groupId}`, payload);
+    }
+
+    deleteGroup(groupId: string): Observable<void> {
+        return this.http.delete<void>(`${this.baseUrl}/groups/${groupId}`);
     }
 
     listCompartments(): Observable<CompartmentModel[]> {

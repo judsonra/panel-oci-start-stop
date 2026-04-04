@@ -13,6 +13,7 @@ describe('InstancesPage', () => {
     beforeEach(async () => {
         apiService = jasmine.createSpyObj<ApiService>('ApiService', [
             'listInstances',
+            'listCompartments',
             'createInstance',
             'updateInstance',
             'startInstance',
@@ -26,6 +27,7 @@ describe('InstancesPage', () => {
                     id: 'instance-1',
                     name: 'Teste',
                     ocid: 'ocid1.instance.oc1..example',
+                    compartment_id: 'compartment-1',
                     enabled: true,
                     vcpu: 2,
                     memory_gbs: 16,
@@ -36,11 +38,24 @@ describe('InstancesPage', () => {
                 }
             ])
         );
+        apiService.listCompartments.and.returnValue(
+            of([
+                {
+                    id: 'compartment-1',
+                    name: 'Compartimento A',
+                    ocid: 'ocid1.compartment.oc1..aaaa',
+                    active: true,
+                    created_at: '2026-03-12T00:00:00Z',
+                    updated_at: '2026-03-12T00:00:00Z'
+                }
+            ])
+        );
         apiService.createInstance.and.returnValue(
             of({
                 id: 'instance-1',
                 name: 'Teste',
                 ocid: 'ocid1.instance.oc1..example',
+                compartment_id: 'compartment-1',
                 enabled: true,
                 created_at: '2026-03-12T00:00:00Z',
                 updated_at: '2026-03-12T00:00:00Z'
@@ -51,6 +66,7 @@ describe('InstancesPage', () => {
                 id: 'instance-1',
                 name: 'Teste',
                 ocid: 'ocid1.instance.oc1..example',
+                compartment_id: 'compartment-1',
                 enabled: false,
                 created_at: '2026-03-12T00:00:00Z',
                 updated_at: '2026-03-12T00:00:00Z'
@@ -143,7 +159,7 @@ describe('InstancesPage', () => {
     });
 
     it('keeps the form invalid when required fields are empty', () => {
-        component.form.setValue({ name: '', ocid: '', description: '', enabled: true });
+        component.form.setValue({ name: '', ocid: '', compartment_id: '', description: '', enabled: true });
         expect(component.form.invalid).toBeTrue();
     });
 
@@ -153,6 +169,7 @@ describe('InstancesPage', () => {
                 id: 'instance-1',
                 name: 'App Financeiro',
                 ocid: 'ocid1.instance.oc1..finance',
+                compartment_id: 'compartment-1',
                 enabled: true,
                 created_at: '2026-03-12T00:00:00Z',
                 updated_at: '2026-03-12T00:00:00Z'
@@ -161,6 +178,7 @@ describe('InstancesPage', () => {
                 id: 'instance-2',
                 name: 'Banco UTC',
                 ocid: 'ocid1.instance.oc1..database',
+                compartment_id: 'compartment-1',
                 enabled: true,
                 created_at: '2026-03-12T00:00:00Z',
                 updated_at: '2026-03-12T00:00:00Z'
@@ -180,6 +198,7 @@ describe('InstancesPage', () => {
                 id: 'instance-1',
                 name: 'App Financeiro',
                 ocid: 'ocid1.instance.oc1..finance',
+                compartment_id: 'compartment-1',
                 description: 'Descrição existente',
                 enabled: false,
                 created_at: '2026-03-12T00:00:00Z',
@@ -191,6 +210,7 @@ describe('InstancesPage', () => {
 
         expect(component.selectedExistingInstanceId()).toBe('instance-1');
         expect(component.form.controls.ocid.value).toBe('ocid1.instance.oc1..finance');
+        expect(component.form.controls.compartment_id.value).toBe('compartment-1');
         expect(component.form.controls.description.value).toBe('Descrição existente');
         expect(component.form.controls.enabled.value).toBeFalse();
     });
@@ -201,6 +221,7 @@ describe('InstancesPage', () => {
                 id: 'instance-1',
                 name: 'App Financeiro',
                 ocid: 'ocid1.instance.oc1..finance',
+                compartment_id: 'compartment-1',
                 enabled: true,
                 created_at: '2026-03-12T00:00:00Z',
                 updated_at: '2026-03-12T00:00:00Z'
@@ -218,6 +239,7 @@ describe('InstancesPage', () => {
         component.form.setValue({
             name: 'App Financeiro',
             ocid: 'ocid1.instance.oc1.sa-saopaulo-1.example',
+            compartment_id: 'compartment-1',
             description: 'Descrição',
             enabled: true
         });
@@ -227,6 +249,7 @@ describe('InstancesPage', () => {
         expect(apiService.createInstance).toHaveBeenCalledWith({
             name: 'App Financeiro',
             ocid: 'ocid1.instance.oc1.sa-saopaulo-1.example',
+            compartment_id: 'compartment-1',
             description: 'Descrição',
             enabled: true
         });
@@ -239,6 +262,7 @@ describe('InstancesPage', () => {
                 id: 'instance-1',
                 name: 'App Financeiro',
                 ocid: 'ocid1.instance.oc1..finance',
+                compartment_id: 'compartment-1',
                 description: 'Descrição existente',
                 enabled: true,
                 created_at: '2026-03-12T00:00:00Z',
@@ -254,6 +278,7 @@ describe('InstancesPage', () => {
         component.save();
 
         expect(apiService.updateInstance).toHaveBeenCalledWith('instance-1', {
+            compartment_id: 'compartment-1',
             description: 'Nova descrição',
             enabled: false
         });
@@ -265,6 +290,7 @@ describe('InstancesPage', () => {
                 id: 'instance-1',
                 name: 'App Financeiro',
                 ocid: 'ocid1.instance.oc1..finance',
+                compartment_id: 'compartment-1',
                 enabled: true,
                 created_at: '2026-03-12T00:00:00Z',
                 updated_at: '2026-03-12T00:00:00Z'
@@ -289,6 +315,7 @@ describe('InstancesPage', () => {
                 id: 'instance-1',
                 name: 'App Financeiro',
                 ocid: 'ocid1.instance.oc1..finance',
+                compartment_id: 'compartment-1',
                 enabled: true,
                 public_ip: '129.10.10.10',
                 private_ip: '10.0.0.10',
@@ -299,6 +326,7 @@ describe('InstancesPage', () => {
                 id: 'instance-2',
                 name: 'Banco',
                 ocid: 'ocid1.instance.oc1..database',
+                compartment_id: 'compartment-1',
                 enabled: true,
                 public_ip: null,
                 private_ip: '10.0.0.20',
@@ -353,6 +381,7 @@ describe('InstancesPage', () => {
                 id: 'instance-2',
                 name: 'Desabilitada',
                 ocid: 'ocid1.instance.oc1..disabled',
+                compartment_id: 'compartment-1',
                 enabled: false,
                 created_at: '2026-03-12T00:00:00Z',
                 updated_at: '2026-03-12T00:00:00Z'
@@ -377,6 +406,7 @@ describe('InstancesPage', () => {
                 id: 'instance-2',
                 name: 'Segundo Nó',
                 ocid: 'ocid1.instance.oc1..second',
+                compartment_id: 'compartment-1',
                 enabled: true,
                 created_at: '2026-03-12T00:00:00Z',
                 updated_at: '2026-03-12T00:00:00Z'
@@ -421,6 +451,7 @@ describe('InstancesPage', () => {
                 id: 'instance-2',
                 name: 'Segundo Nó',
                 ocid: 'ocid1.instance.oc1..second',
+                compartment_id: 'compartment-1',
                 enabled: true,
                 created_at: '2026-03-12T00:00:00Z',
                 updated_at: '2026-03-12T00:00:00Z'
@@ -463,6 +494,7 @@ describe('InstancesPage', () => {
                 id: 'instance-2',
                 name: 'Desabilitada',
                 ocid: 'ocid1.instance.oc1..disabled',
+                compartment_id: 'compartment-1',
                 enabled: false,
                 created_at: '2026-03-12T00:00:00Z',
                 updated_at: '2026-03-12T00:00:00Z'
