@@ -2,7 +2,6 @@ import { CommonModule } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { finalize, firstValueFrom } from 'rxjs';
-import { AutoCompleteCompleteEvent, AutoCompleteModule } from 'primeng/autocomplete';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -15,12 +14,12 @@ import { TextareaModule } from 'primeng/textarea';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TooltipModule } from 'primeng/tooltip';
 import { ApiService } from '@/app/core/api.service';
-import { ApiErrorResponse, CompartmentModel, ImportAllCompartmentsModel, InstanceModel } from '@/app/core/models';
+import { ApiErrorResponse, ImportAllCompartmentsModel, InstanceImportPreviewModel, InstanceModel } from '@/app/core/models';
 
 @Component({
     selector: 'app-instances-page',
     standalone: true,
-    imports: [CommonModule, FormsModule, ReactiveFormsModule, AutoCompleteModule, ButtonModule, DialogModule, InputTextModule, TextareaModule, MessageModule, ProgressBarModule, TableModule, TabsModule, TagModule, ToggleSwitchModule, TooltipModule],
+    imports: [CommonModule, FormsModule, ReactiveFormsModule, ButtonModule, DialogModule, InputTextModule, TextareaModule, MessageModule, ProgressBarModule, TableModule, TabsModule, TagModule, ToggleSwitchModule, TooltipModule],
     template: `
         <section class="page-header">
             <div>
@@ -28,7 +27,18 @@ import { ApiErrorResponse, CompartmentModel, ImportAllCompartmentsModel, Instanc
                 <h2>Painel Operacional OCI</h2>
                 <p>Cadastre o OCID das instâncias e acione operações de inicialização e desligamento diretamente pela API.</p>
             </div>
-            <button pButton type="button" label="Atualizar" icon="pi pi-refresh" [outlined]="true" (click)="openRefreshConfirmation()" [loading]="loading() || refreshingStatuses()" [disabled]="refreshingStatuses()"></button>
+            <button
+                pButton
+                type="button"
+                label="Atualizar"
+                icon="pi pi-refresh"
+                [outlined]="true"
+                [severity]="refreshButtonSeverity()"
+                styleClass="instances-refresh-button"
+                [loading]="refreshButtonLoading()"
+                [disabled]="refreshButtonDisabled()"
+                (click)="openRefreshConfirmation()"
+            ></button>
         </section>
 
         <p-dialog
@@ -189,7 +199,7 @@ import { ApiErrorResponse, CompartmentModel, ImportAllCompartmentsModel, Instanc
             <p-tabs [value]="activeTab()" (valueChange)="setActiveTab($event)">
                 <p-tablist>
                     <p-tab [value]="0">Instâncias cadastradas</p-tab>
-                    <p-tab [value]="1">Cadastro de instância</p-tab>
+                    <p-tab [value]="1">Importação de instâncias</p-tab>
                 </p-tablist>
                 <p-tabpanels>
                     <p-tabpanel [value]="0">
@@ -210,8 +220,12 @@ import { ApiErrorResponse, CompartmentModel, ImportAllCompartmentsModel, Instanc
                             />
                         </section>
 
+                        @if (showInitialLoadingHint()) {
+                            <p class="instances-loading-hint" aria-live="polite">Carregando instâncias...</p>
+                        }
+
                         <div class="table-shell">
-                            <p-table [value]="filteredInstances()" [loading]="loading()" dataKey="id" responsiveLayout="scroll">
+                            <p-table [value]="filteredInstances()" [loading]="tableLoading()" dataKey="id" responsiveLayout="scroll">
                                 <ng-template pTemplate="header">
                                     <tr>
                                         <th>Nome</th>
@@ -307,7 +321,7 @@ import { ApiErrorResponse, CompartmentModel, ImportAllCompartmentsModel, Instanc
                                 </ng-template>
                                 <ng-template pTemplate="emptymessage">
                                     <tr>
-                                        <td colspan="9">Nenhuma instância cadastrada.</td>
+                                        <td colspan="9">{{ showInitialLoadingHint() ? '' : 'Nenhuma instância cadastrada.' }}</td>
                                     </tr>
                                 </ng-template>
                             </p-table>
@@ -315,53 +329,62 @@ import { ApiErrorResponse, CompartmentModel, ImportAllCompartmentsModel, Instanc
                     </p-tabpanel>
                     <p-tabpanel [value]="1">
                         <form class="form-panel" [formGroup]="form" (ngSubmit)="save()">
-                            @if (selectedExistingInstanceId()) {
-                                <p-message severity="info" text="Instância existente carregada para edição. O salvamento atualizará descrição e habilitação."></p-message>
+                            @if (error()) {
+                                <p-message severity="error" [text]="error() || ''"></p-message>
                             }
 
                             <label>
-                                <span>Nome</span>
-                                <p-autocomplete
-                                    formControlName="name"
-                                    [suggestions]="nameSuggestions()"
-                                    [dropdown]="true"
-                                    dropdownMode="blank"
-                                    [completeOnFocus]="true"
-                                    [showClear]="true"
-                                    [forceSelection]="false"
-                                    placeholder="Selecione ou digite o nome da instância"
-                                    (completeMethod)="filterNameSuggestions($event)"
-                                    (onSelect)="selectExistingInstanceByName($event.value)"
-                                    (onClear)="clearExistingSelectionIfNeeded()"
-                                />
-                            </label>
-
-                            <label>
                                 <span>OCID da instância</span>
-                                <p-autocomplete
-                                    formControlName="ocid"
-                                    [suggestions]="ocidSuggestions()"
-                                    [dropdown]="true"
-                                    dropdownMode="blank"
-                                    [completeOnFocus]="true"
-                                    [showClear]="true"
-                                    [forceSelection]="false"
-                                    placeholder="Selecione ou digite o OCID da instância"
-                                    (completeMethod)="filterOcidSuggestions($event)"
-                                    (onSelect)="selectExistingInstanceByOcid($event.value)"
-                                    (onClear)="clearExistingSelectionIfNeeded()"
-                                />
+                                <div class="instance-import-search-row">
+                                    <input pInputText type="search" formControlName="ocid" placeholder="Cole o OCID da instância na OCI" />
+                                    <button
+                                        pButton
+                                        type="button"
+                                        label="Buscar"
+                                        icon="pi pi-search"
+                                        [loading]="importPreviewLoading()"
+                                        [disabled]="importPreviewLoading() || saving()"
+                                        (click)="lookupInstancePreview()"
+                                    ></button>
+                                </div>
                             </label>
 
-                            <label>
-                                <span>Compartimento</span>
-                                <select formControlName="compartment_id">
-                                    <option value="">Selecione um compartimento</option>
-                                    @for (compartment of compartments(); track compartment.id) {
-                                        <option [value]="compartment.id">{{ compartment.name }}</option>
-                                    }
-                                </select>
-                            </label>
+                            @if (importPreview(); as preview) {
+                                @if (preview.already_registered) {
+                                    <p-message severity="warn" text="A instância informada já está cadastrada no banco local. O salvamento de um novo cadastro foi bloqueado."></p-message>
+                                }
+
+                                <section class="instance-import-preview-list" aria-label="Dados da instância">
+                                    <p class="instance-import-preview-item">
+                                        <span class="instance-import-preview-label">Nome:</span>
+                                        <span class="instance-import-preview-value">{{ preview.name }}</span>
+                                    </p>
+                                    <p class="instance-import-preview-item">
+                                        <span class="instance-import-preview-label">OCID:</span>
+                                        <span class="instance-import-preview-value">{{ preview.ocid }}</span>
+                                    </p>
+                                    <p class="instance-import-preview-item">
+                                        <span class="instance-import-preview-label">vCPU:</span>
+                                        <span class="instance-import-preview-value">{{ formatNumber(preview.vcpu) }}</span>
+                                    </p>
+                                    <p class="instance-import-preview-item">
+                                        <span class="instance-import-preview-label">Memória:</span>
+                                        <span class="instance-import-preview-value">{{ formatMemory(preview.memory_gbs) }}</span>
+                                    </p>
+                                    <p class="instance-import-preview-item">
+                                        <span class="instance-import-preview-label">IP Público:</span>
+                                        <span class="instance-import-preview-value">{{ preview.public_ip || '-' }}</span>
+                                    </p>
+                                    <p class="instance-import-preview-item">
+                                        <span class="instance-import-preview-label">IP Privado:</span>
+                                        <span class="instance-import-preview-value">{{ preview.private_ip || '-' }}</span>
+                                    </p>
+                                    <p class="instance-import-preview-item">
+                                        <span class="instance-import-preview-label">Compartimento:</span>
+                                        <span class="instance-import-preview-value">{{ preview.compartment_name }}</span>
+                                    </p>
+                                </section>
+                            }
 
                             <label>
                                 <span>Descrição</span>
@@ -374,7 +397,7 @@ import { ApiErrorResponse, CompartmentModel, ImportAllCompartmentsModel, Instanc
                             </label>
 
                             <div class="form-actions">
-                                <button pButton type="submit" label="Salvar instância" icon="pi pi-save" [disabled]="form.invalid || saving()"></button>
+                                <button pButton type="submit" label="Salvar instância" icon="pi pi-save" [disabled]="!canSaveImportedInstance()"></button>
                                 <button
                                     pButton
                                     type="button"
@@ -397,9 +420,8 @@ export class InstancesPage implements OnInit {
     private readonly formBuilder = inject(FormBuilder);
 
     readonly instances = signal<InstanceModel[]>([]);
-    readonly compartments = signal<CompartmentModel[]>([]);
-    readonly nameSuggestions = signal<string[]>([]);
-    readonly ocidSuggestions = signal<string[]>([]);
+    readonly importPreview = signal<InstanceImportPreviewModel | null>(null);
+    readonly importPreviewLoading = signal(false);
     readonly loading = signal(false);
     readonly saving = signal(false);
     readonly error = signal<string | null>(null);
@@ -424,7 +446,21 @@ export class InstancesPage implements OnInit {
     readonly autoRegisterResult = signal<ImportAllCompartmentsModel | null>(null);
     readonly autoRegisterCompleted = signal(false);
     readonly autoRegisterConfirmationText = signal('');
-    readonly selectedExistingInstanceId = signal<string | null>(null);
+    readonly isInitialLoadPending = computed(() => this.loading() && this.instances().length === 0);
+    readonly showInitialLoadingHint = computed(() => this.isInitialLoadPending());
+    readonly tableLoading = computed(() => this.loading() && this.instances().length > 0);
+    readonly refreshButtonDisabled = computed(() => this.isInitialLoadPending() || this.refreshingStatuses());
+    readonly refreshButtonLoading = computed(() => this.refreshingStatuses());
+    readonly refreshButtonSeverity = computed<'secondary' | 'success'>(() => (this.isInitialLoadPending() ? 'secondary' : 'success'));
+    readonly canSaveImportedInstance = computed(() => {
+        const preview = this.importPreview();
+        return !!preview
+            && !preview.already_registered
+            && !this.saving()
+            && !this.importPreviewLoading()
+            && this.form.controls.ocid.valid
+            && this.form.controls.ocid.value.trim() === preview.ocid;
+    });
     readonly refreshProgressPercent = computed(() => {
         const total = this.refreshProgressTotal();
         return total === 0 ? 0 : Math.round((this.refreshProgressCount() / total) * 100);
@@ -451,25 +487,14 @@ export class InstancesPage implements OnInit {
     });
 
     readonly form = this.formBuilder.nonNullable.group({
-        name: ['', [Validators.required, Validators.maxLength(120)]],
         ocid: ['', [Validators.required, Validators.pattern(/^ocid1\.instance\..+/)]],
-        compartment_id: ['', Validators.required],
         description: [''],
         enabled: [true]
     });
 
     ngOnInit(): void {
-        this.form.controls.name.valueChanges.subscribe(() => this.syncSelectionFromCurrentValues());
-        this.form.controls.ocid.valueChanges.subscribe(() => this.syncSelectionFromCurrentValues());
-        this.loadCompartments();
+        this.form.controls.ocid.valueChanges.subscribe((value) => this.clearPreviewIfOcidChanged(value));
         this.loadInstances();
-    }
-
-    loadCompartments(): void {
-        this.api.listCompartments().subscribe({
-            next: (compartments) => this.compartments.set(compartments),
-            error: () => this.error.set('Não foi possível carregar os compartimentos.')
-        });
     }
 
     loadInstances(): void {
@@ -479,43 +504,31 @@ export class InstancesPage implements OnInit {
             .listInstances()
             .pipe(finalize(() => this.loading.set(false)))
             .subscribe({
-                next: (instances) => {
-                    this.instances.set(instances);
-                    this.nameSuggestions.set(instances.map((instance) => instance.name));
-                    this.ocidSuggestions.set(instances.map((instance) => instance.ocid));
-                },
+                next: (instances) => this.instances.set(instances),
                 error: () => this.error.set('Não foi possível carregar as instâncias.')
             });
     }
 
-    filterNameSuggestions(event: AutoCompleteCompleteEvent): void {
-        const query = (event.query ?? '').trim().toLowerCase();
-        const names = this.instances().map((instance) => instance.name);
-        this.nameSuggestions.set(!query ? names : names.filter((name) => name.toLowerCase().includes(query)));
-    }
-
-    filterOcidSuggestions(event: AutoCompleteCompleteEvent): void {
-        const query = (event.query ?? '').trim().toLowerCase();
-        const ocids = this.instances().map((instance) => instance.ocid);
-        this.ocidSuggestions.set(!query ? ocids : ocids.filter((ocid) => ocid.toLowerCase().includes(query)));
-    }
-
-    selectExistingInstanceByName(name: string): void {
-        const instance = this.instances().find((item) => item.name === name);
-        if (instance) {
-            this.applyExistingInstanceSelection(instance);
+    lookupInstancePreview(): void {
+        if (this.form.controls.ocid.invalid) {
+            this.form.controls.ocid.markAsTouched();
+            return;
         }
-    }
 
-    selectExistingInstanceByOcid(ocid: string): void {
-        const instance = this.instances().find((item) => item.ocid === ocid);
-        if (instance) {
-            this.applyExistingInstanceSelection(instance);
-        }
-    }
+        this.importPreviewLoading.set(true);
+        this.importPreview.set(null);
+        this.error.set(null);
+        this.actionFeedback.set(null);
 
-    clearExistingSelectionIfNeeded(): void {
-        queueMicrotask(() => this.syncSelectionFromCurrentValues());
+        this.api
+            .getInstanceImportPreview(this.form.controls.ocid.value.trim())
+            .pipe(finalize(() => this.importPreviewLoading.set(false)))
+            .subscribe({
+                next: (preview) => this.importPreview.set(preview),
+                error: (response: { error?: ApiErrorResponse }) => {
+                    this.error.set(response.error?.detail ?? 'Não foi possível consultar a instância na OCI.');
+                }
+            });
     }
 
     openRefreshConfirmation(): void {
@@ -678,7 +691,7 @@ export class InstancesPage implements OnInit {
     }
 
     save(): void {
-        if (this.form.invalid) {
+        if (!this.canSaveImportedInstance()) {
             this.form.markAllAsTouched();
             return;
         }
@@ -687,17 +700,18 @@ export class InstancesPage implements OnInit {
         this.error.set(null);
         this.actionFeedback.set(null);
 
-        const selectedExistingId = this.selectedExistingInstanceId();
         const payload = this.form.getRawValue();
-        const request$ = selectedExistingId
-            ? this.api.updateInstance(selectedExistingId, { compartment_id: payload.compartment_id, description: payload.description, enabled: payload.enabled })
-            : this.api.createInstance(payload);
+        const request$ = this.api.importInstance({
+            ocid: payload.ocid,
+            description: payload.description,
+            enabled: payload.enabled
+        });
 
         request$.pipe(finalize(() => this.saving.set(false))).subscribe({
                 next: () => {
                     this.resetForm();
                     this.actionFeedbackSeverity.set('success');
-                    this.actionFeedback.set(selectedExistingId ? 'Instância atualizada com sucesso.' : 'Instância cadastrada com sucesso.');
+                    this.actionFeedback.set('Instância importada com sucesso.');
                     this.activeTab.set(0);
                     this.loadInstances();
                 },
@@ -873,45 +887,19 @@ export class InstancesPage implements OnInit {
         this.refreshingRowIds.set(next);
     }
 
-    private applyExistingInstanceSelection(instance: InstanceModel): void {
-        this.selectedExistingInstanceId.set(instance.id);
-        this.form.patchValue(
-            {
-                name: instance.name,
-                ocid: instance.ocid,
-                compartment_id: instance.compartment_id ?? '',
-                description: instance.description ?? '',
-                enabled: instance.enabled
-            },
-            { emitEvent: false }
-        );
-    }
-
-    private syncSelectionFromCurrentValues(): void {
-        const name = this.form.controls.name.value.trim();
-        const ocid = this.form.controls.ocid.value.trim();
-        const matched = this.instances().find((instance) => instance.name === name && instance.ocid === ocid);
-
-        if (matched) {
-            if (this.selectedExistingInstanceId() !== matched.id) {
-                this.applyExistingInstanceSelection(matched);
-            }
-            return;
-        }
-
-        this.selectedExistingInstanceId.set(null);
-    }
-
     private resetForm(): void {
-        this.selectedExistingInstanceId.set(null);
+        this.importPreview.set(null);
         this.form.reset({
-            name: '',
             ocid: '',
-            compartment_id: '',
             description: '',
             enabled: true
         });
-        this.nameSuggestions.set(this.instances().map((instance) => instance.name));
-        this.ocidSuggestions.set(this.instances().map((instance) => instance.ocid));
+    }
+
+    private clearPreviewIfOcidChanged(value: string): void {
+        const preview = this.importPreview();
+        if (preview && preview.ocid !== value.trim()) {
+            this.importPreview.set(null);
+        }
     }
 }

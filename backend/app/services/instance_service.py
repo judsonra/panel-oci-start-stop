@@ -52,6 +52,21 @@ class ImportAllCompartmentsResult:
     compartments: list[ImportCompartmentResult]
 
 
+@dataclass
+class InstanceImportPreview:
+    name: str
+    ocid: str
+    vcpu: float | None
+    memory_gbs: float | None
+    vnic_id: str | None
+    public_ip: str | None
+    private_ip: str | None
+    compartment_ocid: str
+    compartment_name: str
+    oci_created_at: datetime | None
+    already_registered: bool
+
+
 class InstanceService:
     def __init__(self, session: Session, oci_service: OCIService) -> None:
         self.session = session
@@ -75,6 +90,74 @@ class InstanceService:
         if payload.compartment_id and self.session.get(Compartment, payload.compartment_id) is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Compartment not found")
         return self.instances.create(payload)
+
+    def get_import_preview(self, instance_ocid: str) -> InstanceImportPreview:
+        existing = self.instances.get_by_ocid(instance_ocid)
+        if existing is not None:
+            compartment = existing.compartment or (self.session.get(Compartment, existing.compartment_id) if existing.compartment_id else None)
+            return InstanceImportPreview(
+                name=existing.name,
+                ocid=existing.ocid,
+                vcpu=existing.vcpu,
+                memory_gbs=existing.memory_gbs,
+                vnic_id=existing.vnic_id,
+                public_ip=existing.public_ip,
+                private_ip=existing.private_ip,
+                compartment_ocid=compartment.ocid if compartment is not None else existing.compartment_id or "",
+                compartment_name=compartment.name if compartment is not None else "Compartimento não identificado",
+                oci_created_at=existing.oci_created_at,
+                already_registered=True,
+            )
+
+        try:
+            details = self.oci_service.get_instance_details(instance_ocid)
+            vnic_id = self.oci_service.get_instance_vnic_id(instance_ocid)
+            vnic_details = self.oci_service.get_vnic_details(vnic_id) if vnic_id else OCIVnicDetails(vnic_id="", public_ip=None, private_ip=None)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+        compartment = self._ensure_compartment_cached(details.compartment_ocid)
+        return InstanceImportPreview(
+            name=details.name,
+            ocid=details.ocid,
+            vcpu=details.vcpu,
+            memory_gbs=details.memory_gbs,
+            vnic_id=vnic_id,
+            public_ip=vnic_details.public_ip,
+            private_ip=vnic_details.private_ip,
+            compartment_ocid=details.compartment_ocid,
+            compartment_name=compartment.name,
+            oci_created_at=details.oci_created_at,
+            already_registered=False,
+        )
+
+    def import_instance(self, ocid: str, description: str | None, enabled: bool) -> Instance:
+        if self.instances.get_by_ocid(ocid):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Instance OCID already registered")
+
+        preview = self.get_import_preview(ocid)
+        compartment = self._ensure_compartment_cached(preview.compartment_ocid, preview.compartment_name)
+        created = self.instances.create(
+            InstanceCreate(
+                name=preview.name,
+                ocid=preview.ocid,
+                compartment_id=compartment.id,
+                description=description,
+                enabled=enabled,
+            )
+        )
+        created, _ = self.instances.apply_updates(
+            created,
+            {
+                "vcpu": preview.vcpu,
+                "memory_gbs": preview.memory_gbs,
+                "vnic_id": preview.vnic_id,
+                "public_ip": preview.public_ip,
+                "private_ip": preview.private_ip,
+                "oci_created_at": preview.oci_created_at,
+            },
+        )
+        return created
 
     def update_instance(self, instance_id: str, payload: InstanceUpdate) -> Instance:
         instance = self.get_instance(instance_id)
@@ -316,3 +399,32 @@ class InstanceService:
         self.session.add(instance)
         self.session.commit()
         return execution
+
+    def _ensure_compartment_cached(self, compartment_ocid: str, known_name: str | None = None) -> Compartment:
+        compartment = self.compartments.get_by_ocid(compartment_ocid)
+        resolved_name = known_name or (compartment.name if compartment is not None else None)
+
+        if resolved_name is None or (compartment is not None and compartment.active is False):
+            resolved_name = self._lookup_compartment_name(compartment_ocid) or resolved_name
+
+        if resolved_name is None:
+            resolved_name = compartment_ocid
+
+        if compartment is None:
+            return self.compartments.create(name=resolved_name, ocid=compartment_ocid, active=True)
+
+        if compartment.name != resolved_name or compartment.active is False:
+            return self.compartments.update(compartment, name=resolved_name, active=True)
+
+        return compartment
+
+    def _lookup_compartment_name(self, compartment_ocid: str) -> str | None:
+        try:
+            compartments = self.oci_service.list_compartments()
+        except RuntimeError:
+            return None
+
+        for item in compartments:
+            if item.ocid == compartment_ocid:
+                return item.name
+        return None

@@ -15,6 +15,8 @@ from app.schemas.instance import (
     CompartmentInstancesImportRead,
     InstanceActionResult,
     InstanceCreate,
+    InstanceImportCreate,
+    InstanceImportPreviewRead,
     InstanceRead,
     InstanceUpdate,
     InstanceVnicRead,
@@ -213,6 +215,24 @@ def create_instance(
     service: InstanceService = Depends(get_instance_service),
 ) -> InstanceRead:
     return InstanceRead.model_validate(service.create_instance(payload))
+
+
+@router.get("/instances/import-preview/{instance_ocid}", response_model=InstanceImportPreviewRead)
+def get_instance_import_preview(
+    instance_ocid: str,
+    _: CurrentUser = Depends(get_current_user),
+    service: InstanceService = Depends(get_instance_service),
+) -> InstanceImportPreviewRead:
+    return InstanceImportPreviewRead(**asdict(service.get_import_preview(instance_ocid)))
+
+
+@router.post("/instances/import", response_model=InstanceRead, status_code=status.HTTP_201_CREATED)
+def import_instance(
+    payload: InstanceImportCreate,
+    _: CurrentUser = Depends(get_current_user),
+    service: InstanceService = Depends(get_instance_service),
+) -> InstanceRead:
+    return InstanceRead.model_validate(service.import_instance(payload.ocid, payload.description, payload.enabled))
 
 
 @router.put("/instances/{instance_id}", response_model=InstanceRead)

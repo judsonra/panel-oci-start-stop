@@ -1,9 +1,17 @@
 from fastapi import HTTPException
 
-from app.api.routes import create_instance, get_instance_vnic, get_status, get_vnic_details, import_all_compartment_instances
+from app.api.routes import (
+    create_instance,
+    get_instance_import_preview,
+    get_instance_vnic,
+    get_status,
+    get_vnic_details,
+    import_all_compartment_instances,
+    import_instance,
+)
 from app.core.security import CurrentUser
 from app.models.execution_log import ExecutionStatus
-from app.schemas.instance import InstanceCreate
+from app.schemas.instance import InstanceCreate, InstanceImportCreate
 from app.services.compartment_service import CompartmentService
 from app.services.instance_service import InstanceService
 from app.tests.conftest import fake_oci_service
@@ -117,6 +125,148 @@ def test_get_status_route_returns_instance_state(override_session):
     assert response.instance_id == created.id
     assert response.instance_state == "RUNNING"
     assert response.status == ExecutionStatus.success
+
+
+def test_get_import_preview_returns_oci_fields_and_registration_flag(override_session):
+    CompartmentService(override_session, fake_oci_service).list_and_update()
+    service = InstanceService(override_session, fake_oci_service)
+
+    response = get_instance_import_preview(
+        "ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+        CurrentUser(subject="local", email=None, groups=[]),
+        service,
+    )
+
+    assert response.name == "Instance A1"
+    assert response.ocid == "ocid1.instance.oc1.sa-saopaulo-1.autoa1"
+    assert response.compartment_ocid == "ocid1.compartment.oc1..aaaa"
+    assert response.compartment_name == "Compartment A"
+    assert response.vcpu == 2.0
+    assert response.public_ip == "129.1.1.1"
+    assert response.private_ip == "10.0.0.10"
+    assert response.already_registered is False
+
+
+def test_get_import_preview_marks_existing_instance_as_already_registered(override_session):
+    CompartmentService(override_session, fake_oci_service).list_and_update()
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="Instance A1",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+            description="existente",
+            enabled=True,
+        )
+    )
+    service.instances.apply_updates(
+        created,
+        {
+            "compartment_id": service.compartments.get_by_ocid("ocid1.compartment.oc1..aaaa").id,
+            "vcpu": 2.0,
+            "memory_gbs": 12.0,
+            "vnic_id": "ocid1.vnic.oc1..aaaavnic",
+            "public_ip": "129.1.1.1",
+            "private_ip": "10.0.0.10",
+        },
+    )
+
+    response = service.get_import_preview("ocid1.instance.oc1.sa-saopaulo-1.autoa1")
+
+    assert response.already_registered is True
+    assert response.name == "Instance A1"
+    assert response.compartment_ocid == "ocid1.compartment.oc1..aaaa"
+    assert response.compartment_name == "Compartment A"
+    assert response.public_ip == "129.1.1.1"
+
+
+def test_get_import_preview_returns_local_data_when_instance_exists_even_if_oci_fails(override_session):
+    CompartmentService(override_session, fake_oci_service).list_and_update()
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="Instance A1",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+            description="existente",
+            enabled=True,
+        )
+    )
+    service.instances.apply_updates(
+        created,
+        {
+            "compartment_id": service.compartments.get_by_ocid("ocid1.compartment.oc1..aaaa").id,
+            "vcpu": 2.0,
+            "memory_gbs": 12.0,
+            "vnic_id": "ocid1.vnic.oc1..aaaavnic",
+            "public_ip": "129.1.1.1",
+            "private_ip": "10.0.0.10",
+        },
+    )
+    original_lookup = fake_oci_service.get_instance_details
+    fake_oci_service.get_instance_details = lambda _: (_ for _ in ()).throw(RuntimeError("oci_instance_not_found_or_forbidden"))
+
+    try:
+        response = service.get_import_preview("ocid1.instance.oc1.sa-saopaulo-1.autoa1")
+    finally:
+        fake_oci_service.get_instance_details = original_lookup
+
+    assert response.already_registered is True
+    assert response.ocid == "ocid1.instance.oc1.sa-saopaulo-1.autoa1"
+    assert response.compartment_name == "Compartment A"
+
+
+def test_import_instance_creates_local_record_with_oci_details(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+
+    response = import_instance(
+        InstanceImportCreate(
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+            description="instancia importada",
+            enabled=False,
+        ),
+        CurrentUser(subject="local", email=None, groups=[]),
+        service,
+    )
+
+    assert response.name == "Instance A1"
+    assert response.ocid == "ocid1.instance.oc1.sa-saopaulo-1.autoa1"
+    assert response.description == "instancia importada"
+    assert response.enabled is False
+    assert response.compartment_id is not None
+    assert response.vcpu == 2.0
+    assert response.memory_gbs == 12.0
+    assert response.public_ip == "129.1.1.1"
+    assert response.private_ip == "10.0.0.10"
+
+
+def test_import_instance_rejects_duplicate_ocid(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+    service.create_instance(
+        InstanceCreate(
+            name="Instance A1",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+            description=None,
+            enabled=True,
+        )
+    )
+
+    try:
+        service.import_instance("ocid1.instance.oc1.sa-saopaulo-1.autoa1", "duplicada", True)
+    except HTTPException as exc:
+        assert exc.status_code == 409
+    else:
+        raise AssertionError("Expected duplicate imported instance to raise HTTPException")
+
+
+def test_import_instance_creates_missing_compartment_from_oci_lookup(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+
+    created = service.import_instance("ocid1.instance.oc1.sa-saopaulo-1.autoa1", None, True)
+
+    assert created.compartment_id is not None
+    compartment = service.compartments.get_by_ocid("ocid1.compartment.oc1..aaaa")
+    assert compartment is not None
+    assert compartment.name == "Compartment A"
+    assert compartment.active is True
 
 
 def test_import_all_compartment_instances_creates_records_and_enriches_network_fields(override_session):
