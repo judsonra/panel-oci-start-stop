@@ -31,6 +31,19 @@ class InstanceUpdate(BaseModel):
     enabled: bool | None = None
 
 
+class InstanceImportCreate(BaseModel):
+    ocid: str = Field(min_length=20, max_length=255)
+    description: str | None = Field(default=None, max_length=500)
+    enabled: bool = True
+
+    @field_validator("ocid")
+    @classmethod
+    def validate_ocid(cls, value: str) -> str:
+        if not value.startswith("ocid1.instance."):
+            raise ValueError("OCID must start with ocid1.instance.")
+        return value
+
+
 class InstanceRead(AppBaseModel):
     id: str
     name: str
@@ -65,6 +78,20 @@ class VnicDetailsRead(BaseModel):
     vnic_id: str
     public_ip: str | None
     private_ip: str | None
+
+
+class InstanceImportPreviewRead(BaseModel):
+    name: str
+    ocid: str
+    vcpu: float | None
+    memory_gbs: float | None
+    vnic_id: str | None
+    public_ip: str | None
+    private_ip: str | None
+    compartment_ocid: str
+    compartment_name: str
+    oci_created_at: datetime | None
+    already_registered: bool
 
 
 class InstanceImportItemRead(BaseModel):

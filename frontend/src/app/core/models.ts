@@ -16,6 +16,20 @@ export interface InstanceModel {
     updated_at: string;
 }
 
+export interface InstanceImportPreviewModel {
+    name: string;
+    ocid: string;
+    vcpu?: number | null;
+    memory_gbs?: number | null;
+    vnic_id?: string | null;
+    public_ip?: string | null;
+    private_ip?: string | null;
+    compartment_ocid: string;
+    compartment_name: string;
+    oci_created_at?: string | null;
+    already_registered: boolean;
+}
+
 export interface CompartmentModel {
     id: string;
     name: string;

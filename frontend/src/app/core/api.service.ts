@@ -9,6 +9,7 @@ import {
     GroupModel,
     GroupTreeCompartmentModel,
     ImportAllCompartmentsModel,
+    InstanceImportPreviewModel,
     InstanceModel,
     InstanceVnicModel,
     ReportsHealthResponse,
@@ -116,6 +117,14 @@ export class ApiService {
 
     createInstance(payload: Partial<InstanceModel>): Observable<InstanceModel> {
         return this.http.post<InstanceModel>(`${this.baseUrl}/instances`, payload);
+    }
+
+    getInstanceImportPreview(instanceOcid: string): Observable<InstanceImportPreviewModel> {
+        return this.http.get<InstanceImportPreviewModel>(`${this.baseUrl}/instances/import-preview/${encodeURIComponent(instanceOcid)}`);
+    }
+
+    importInstance(payload: { ocid: string; description?: string | null; enabled: boolean }): Observable<InstanceModel> {
+        return this.http.post<InstanceModel>(`${this.baseUrl}/instances/import`, payload);
     }
 
     updateInstance(instanceId: string, payload: Partial<InstanceModel>): Observable<InstanceModel> {

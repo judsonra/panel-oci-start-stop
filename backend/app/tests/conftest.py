@@ -17,7 +17,7 @@ import app.db.base  # noqa: E402,F401
 from app.models.base import Base  # noqa: E402
 from app.services.oci_cli import OCICompartmentSummary  # noqa: E402
 from app.services.oci_cli import OCICommandResult  # noqa: E402
-from app.services.oci_cli import OCIInstanceSummary, OCIVnicDetails  # noqa: E402
+from app.services.oci_cli import OCIInstanceDetails, OCIInstanceSummary, OCIVnicDetails  # noqa: E402
 
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
@@ -55,6 +55,24 @@ class FakeOCIService:
         self.vnic_ids = {
             "ocid1.instance.oc1.sa-saopaulo-1.autoa1": "ocid1.vnic.oc1..aaaavnic",
             "ocid1.instance.oc1.sa-saopaulo-1.autob1": "ocid1.vnic.oc1..bbbbvnic",
+        }
+        self.instance_details = {
+            "ocid1.instance.oc1.sa-saopaulo-1.autoa1": OCIInstanceDetails(
+                name="Instance A1",
+                ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+                compartment_ocid="ocid1.compartment.oc1..aaaa",
+                vcpu=2.0,
+                memory_gbs=12.0,
+                oci_created_at=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc),
+            ),
+            "ocid1.instance.oc1.sa-saopaulo-1.autob1": OCIInstanceDetails(
+                name="Instance B1",
+                ocid="ocid1.instance.oc1.sa-saopaulo-1.autob1",
+                compartment_ocid="ocid1.compartment.oc1..bbbb",
+                vcpu=4.0,
+                memory_gbs=24.0,
+                oci_created_at=datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc),
+            ),
         }
         self.vnic_details = {
             "ocid1.vnic.oc1..aaaavnic": OCIVnicDetails(
@@ -141,6 +159,11 @@ class FakeOCIService:
     def list_instances_by_compartment(self, compartment_ocid: str) -> list[OCIInstanceSummary]:
         return list(self.instances_by_compartment.get(compartment_ocid, []))
 
+    def get_instance_details(self, instance_ocid: str) -> OCIInstanceDetails:
+        if instance_ocid not in self.instance_details:
+            raise RuntimeError("instance_not_found")
+        return self.instance_details[instance_ocid]
+
     def get_instance_vnic_id(self, instance_ocid: str) -> str | None:
         return self.vnic_ids.get(instance_ocid)
 
@@ -185,6 +208,24 @@ def reset_database() -> Generator[None, None, None]:
     fake_oci_service.vnic_ids = {
         "ocid1.instance.oc1.sa-saopaulo-1.autoa1": "ocid1.vnic.oc1..aaaavnic",
         "ocid1.instance.oc1.sa-saopaulo-1.autob1": "ocid1.vnic.oc1..bbbbvnic",
+    }
+    fake_oci_service.instance_details = {
+        "ocid1.instance.oc1.sa-saopaulo-1.autoa1": OCIInstanceDetails(
+            name="Instance A1",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+            compartment_ocid="ocid1.compartment.oc1..aaaa",
+            vcpu=2.0,
+            memory_gbs=12.0,
+            oci_created_at=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc),
+        ),
+        "ocid1.instance.oc1.sa-saopaulo-1.autob1": OCIInstanceDetails(
+            name="Instance B1",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autob1",
+            compartment_ocid="ocid1.compartment.oc1..bbbb",
+            vcpu=4.0,
+            memory_gbs=24.0,
+            oci_created_at=datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc),
+        ),
     }
     fake_oci_service.vnic_details = {
         "ocid1.vnic.oc1..aaaavnic": OCIVnicDetails(

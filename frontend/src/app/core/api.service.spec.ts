@@ -74,4 +74,31 @@ describe('ApiService', () => {
         expect(treeRequest.request.method).toBe('GET');
         treeRequest.flush([]);
     });
+
+    it('uses the backend api prefix for instance import preview and import endpoints', () => {
+        service.getInstanceImportPreview('ocid1.instance.oc1..preview').subscribe();
+        service.importInstance({ ocid: 'ocid1.instance.oc1..preview', description: 'desc', enabled: true }).subscribe();
+
+        const previewRequest = httpMock.expectOne('http://localhost:8000/api/instances/import-preview/ocid1.instance.oc1..preview');
+        expect(previewRequest.request.method).toBe('GET');
+        previewRequest.flush({
+            name: 'Instance A1',
+            ocid: 'ocid1.instance.oc1..preview',
+            compartment_ocid: 'ocid1.compartment.oc1..aaaa',
+            compartment_name: 'Compartment A',
+            already_registered: false
+        });
+
+        const importRequest = httpMock.expectOne('http://localhost:8000/api/instances/import');
+        expect(importRequest.request.method).toBe('POST');
+        expect(importRequest.request.body).toEqual({ ocid: 'ocid1.instance.oc1..preview', description: 'desc', enabled: true });
+        importRequest.flush({
+            id: 'instance-1',
+            name: 'Instance A1',
+            ocid: 'ocid1.instance.oc1..preview',
+            enabled: true,
+            created_at: '2026-03-12T00:00:00Z',
+            updated_at: '2026-03-12T00:00:00Z'
+        });
+    });
 });

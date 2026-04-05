@@ -54,6 +54,16 @@ class OCIInstanceSummary:
 
 
 @dataclass
+class OCIInstanceDetails:
+    name: str
+    ocid: str
+    compartment_ocid: str
+    vcpu: float | None
+    memory_gbs: float | None
+    oci_created_at: datetime | None
+
+
+@dataclass
 class OCIVnicDetails:
     vnic_id: str
     public_ip: str | None
@@ -356,6 +366,47 @@ class OCIService:
                 )
             )
         return instances
+
+    def get_instance_details(self, instance_ocid: str) -> OCIInstanceDetails:
+        result = self._run(
+            [
+                "compute",
+                "instance",
+                "get",
+                "--instance-id",
+                instance_ocid,
+                "--query",
+                'data.{name:"display-name", id:id, compartmentId:"compartment-id", vcpus:"shape-config"."vcpus", memory:"shape-config"."memory-in-gbs", created:"time-created"}',
+                "--profile",
+                self.settings.oci_cli_profile,
+                "--output",
+                "json",
+            ]
+        )
+        if not result.success:
+            raise RuntimeError(result.parsed_error or result.stderr or "OCI instance lookup failed")
+        try:
+            payload = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("OCI instance lookup did not return valid JSON") from exc
+        data = payload.get("data") if isinstance(payload, dict) else payload
+        if not isinstance(data, dict):
+            raise RuntimeError("OCI instance lookup did not return instance data")
+
+        name = data.get("name")
+        ocid = data.get("id")
+        compartment_ocid = data.get("compartmentId")
+        if not isinstance(name, str) or not isinstance(ocid, str) or not isinstance(compartment_ocid, str):
+            raise RuntimeError("OCI instance lookup returned incomplete instance data")
+
+        return OCIInstanceDetails(
+            name=name,
+            ocid=ocid,
+            compartment_ocid=compartment_ocid,
+            vcpu=self._to_float(data.get("vcpus")),
+            memory_gbs=self._to_float(data.get("memory")),
+            oci_created_at=self._parse_datetime(data.get("created")),
+        )
 
     def get_instance_vnic_id(self, instance_ocid: str) -> str | None:
         result = self._run(

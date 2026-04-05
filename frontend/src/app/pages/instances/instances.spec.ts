@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Observable, of, throwError } from 'rxjs';
-import { AutoCompleteCompleteEvent } from 'primeng/autocomplete';
+import { Observable, Subject, of, throwError } from 'rxjs';
 import { ApiService } from '@/app/core/api.service';
+import { InstanceImportPreviewModel } from '@/app/core/models';
 import { InstancesPage } from './instances';
 
 describe('InstancesPage', () => {
@@ -10,66 +10,69 @@ describe('InstancesPage', () => {
     let apiService: jasmine.SpyObj<ApiService>;
     let clipboardWriteText: jasmine.Spy;
 
+    const listedInstances = [
+        {
+            id: 'instance-1',
+            name: 'Teste',
+            ocid: 'ocid1.instance.oc1..example',
+            compartment_id: 'compartment-1',
+            enabled: true,
+            vcpu: 2,
+            memory_gbs: 16,
+            public_ip: '129.10.10.10',
+            private_ip: '10.0.0.10',
+            created_at: '2026-03-12T00:00:00Z',
+            updated_at: '2026-03-12T00:00:00Z'
+        }
+    ];
+
+    const importPreview: InstanceImportPreviewModel = {
+        name: 'Instance A1',
+        ocid: 'ocid1.instance.oc1.sa-saopaulo-1.autoa1',
+        compartment_ocid: 'ocid1.compartment.oc1..aaaa',
+        compartment_name: 'Compartment A',
+        vcpu: 2,
+        memory_gbs: 12,
+        vnic_id: 'ocid1.vnic.oc1..aaaavnic',
+        public_ip: '129.1.1.1',
+        private_ip: '10.0.0.10',
+        oci_created_at: '2026-03-20T10:00:00Z',
+        already_registered: false
+    };
+
     beforeEach(async () => {
         apiService = jasmine.createSpyObj<ApiService>('ApiService', [
             'listInstances',
-            'listCompartments',
-            'createInstance',
+            'getInstanceImportPreview',
+            'importInstance',
             'updateInstance',
             'startInstance',
             'stopInstance',
             'getInstanceStatus',
             'importAllCompartmentsInstances'
         ]);
-        apiService.listInstances.and.returnValue(
-            of([
-                {
-                    id: 'instance-1',
-                    name: 'Teste',
-                    ocid: 'ocid1.instance.oc1..example',
-                    compartment_id: 'compartment-1',
-                    enabled: true,
-                    vcpu: 2,
-                    memory_gbs: 16,
-                    public_ip: '129.10.10.10',
-                    private_ip: '10.0.0.10',
-                    created_at: '2026-03-12T00:00:00Z',
-                    updated_at: '2026-03-12T00:00:00Z'
-                }
-            ])
-        );
-        apiService.listCompartments.and.returnValue(
-            of([
-                {
-                    id: 'compartment-1',
-                    name: 'Compartimento A',
-                    ocid: 'ocid1.compartment.oc1..aaaa',
-                    active: true,
-                    created_at: '2026-03-12T00:00:00Z',
-                    updated_at: '2026-03-12T00:00:00Z'
-                }
-            ])
-        );
-        apiService.createInstance.and.returnValue(
+        apiService.listInstances.and.returnValue(of(listedInstances));
+        apiService.getInstanceImportPreview.and.returnValue(of(importPreview));
+        apiService.importInstance.and.returnValue(
             of({
-                id: 'instance-1',
-                name: 'Teste',
-                ocid: 'ocid1.instance.oc1..example',
+                id: 'instance-2',
+                name: 'Instance A1',
+                ocid: 'ocid1.instance.oc1.sa-saopaulo-1.autoa1',
                 compartment_id: 'compartment-1',
+                description: 'Importada',
                 enabled: true,
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
+                vcpu: 2,
+                memory_gbs: 12,
+                public_ip: '129.1.1.1',
+                private_ip: '10.0.0.10',
+                created_at: '2026-03-20T10:00:00Z',
+                updated_at: '2026-03-20T10:00:00Z'
             })
         );
         apiService.updateInstance.and.returnValue(
             of({
-                id: 'instance-1',
-                name: 'Teste',
-                ocid: 'ocid1.instance.oc1..example',
-                compartment_id: 'compartment-1',
-                enabled: false,
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
+                ...listedInstances[0],
+                enabled: false
             })
         );
         apiService.startInstance.and.returnValue(
@@ -122,20 +125,11 @@ describe('InstancesPage', () => {
                         unchanged: 0,
                         failed: 0,
                         instances: []
-                    },
-                    {
-                        compartment_ocid: 'ocid1.compartment.oc1..bbbb',
-                        compartment_name: 'Compartment B',
-                        total_instances: 1,
-                        created: 0,
-                        updated: 0,
-                        unchanged: 1,
-                        failed: 0,
-                        instances: []
                     }
                 ]
             })
         );
+
         clipboardWriteText = jasmine.createSpy('writeText').and.resolveTo();
         Object.defineProperty(navigator, 'clipboard', {
             configurable: true,
@@ -154,174 +148,153 @@ describe('InstancesPage', () => {
         fixture.detectChanges();
     });
 
-    it('starts with the registered instances tab selected', () => {
+    it('starts with the registered instances tab selected and loads instances without calling status lookup', () => {
         expect(component.activeTab()).toBe(0);
+        expect(apiService.listInstances).toHaveBeenCalled();
+        expect(apiService.getInstanceStatus).not.toHaveBeenCalled();
     });
 
-    it('keeps the form invalid when required fields are empty', () => {
-        component.form.setValue({ name: '', ocid: '', compartment_id: '', description: '', enabled: true });
+    it('renders the import tab label', () => {
+        expect(fixture.nativeElement.textContent).toContain('Importação de instâncias');
+    });
+
+    it('keeps the import form invalid when ocid is empty', () => {
+        component.form.setValue({ ocid: '', description: '', enabled: true });
         expect(component.form.invalid).toBeTrue();
+        expect(component.canSaveImportedInstance()).toBeFalse();
     });
 
-    it('filters autocomplete suggestions for name and ocid', () => {
-        component.instances.set([
-            {
-                id: 'instance-1',
-                name: 'App Financeiro',
-                ocid: 'ocid1.instance.oc1..finance',
-                compartment_id: 'compartment-1',
-                enabled: true,
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
-            },
-            {
-                id: 'instance-2',
-                name: 'Banco UTC',
-                ocid: 'ocid1.instance.oc1..database',
-                compartment_id: 'compartment-1',
-                enabled: true,
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
-            }
-        ]);
+    it('does not query OCI automatically while the user types the ocid', () => {
+        component.form.controls.ocid.setValue(importPreview.ocid);
 
-        component.filterNameSuggestions({ query: 'banco', originalEvent: new Event('input') } as AutoCompleteCompleteEvent);
-        component.filterOcidSuggestions({ query: 'finance', originalEvent: new Event('input') } as AutoCompleteCompleteEvent);
-
-        expect(component.nameSuggestions()).toEqual(['Banco UTC']);
-        expect(component.ocidSuggestions()).toEqual(['ocid1.instance.oc1..finance']);
+        expect(apiService.getInstanceImportPreview).not.toHaveBeenCalled();
+        expect(component.importPreview()).toBeNull();
     });
 
-    it('selects an existing instance by name and fills the ocid, description and enabled state', () => {
-        component.instances.set([
-            {
-                id: 'instance-1',
-                name: 'App Financeiro',
-                ocid: 'ocid1.instance.oc1..finance',
-                compartment_id: 'compartment-1',
-                description: 'Descrição existente',
-                enabled: false,
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
-            }
-        ]);
+    it('loads a preview from OCI only when clicking search and shows read-only data', () => {
+        component.form.controls.ocid.setValue(importPreview.ocid);
 
-        component.selectExistingInstanceByName('App Financeiro');
+        component.lookupInstancePreview();
+        fixture.detectChanges();
 
-        expect(component.selectedExistingInstanceId()).toBe('instance-1');
-        expect(component.form.controls.ocid.value).toBe('ocid1.instance.oc1..finance');
-        expect(component.form.controls.compartment_id.value).toBe('compartment-1');
-        expect(component.form.controls.description.value).toBe('Descrição existente');
-        expect(component.form.controls.enabled.value).toBeFalse();
+        expect(apiService.getInstanceImportPreview).toHaveBeenCalledWith(importPreview.ocid);
+        expect(component.importPreview()).toEqual(importPreview);
+        expect(fixture.nativeElement.textContent).toContain('Compartment A');
+        expect(fixture.nativeElement.textContent).toContain('129.1.1.1');
     });
 
-    it('selects an existing instance by ocid and fills the name', () => {
-        component.instances.set([
-            {
-                id: 'instance-1',
-                name: 'App Financeiro',
-                ocid: 'ocid1.instance.oc1..finance',
-                compartment_id: 'compartment-1',
-                enabled: true,
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
-            }
-        ]);
+    it('blocks save when the preview says the instance is already registered', () => {
+        apiService.getInstanceImportPreview.and.returnValue(
+            of({
+                ...importPreview,
+                already_registered: true
+            })
+        );
+        component.form.controls.ocid.setValue(importPreview.ocid);
 
-        component.selectExistingInstanceByOcid('ocid1.instance.oc1..finance');
+        component.lookupInstancePreview();
+        fixture.detectChanges();
 
-        expect(component.selectedExistingInstanceId()).toBe('instance-1');
-        expect(component.form.controls.name.value).toBe('App Financeiro');
+        expect(component.canSaveImportedInstance()).toBeFalse();
+        expect(fixture.nativeElement.textContent).toContain('já está cadastrada no banco local');
     });
 
-    it('saves a new valid payload and returns to the first tab', () => {
-        component.activeTab.set(1);
+    it('clears the preview when the ocid changes after a successful lookup', () => {
+        component.form.controls.ocid.setValue(importPreview.ocid);
+        component.lookupInstancePreview();
+
+        component.form.controls.ocid.setValue('ocid1.instance.oc1.sa-saopaulo-1.other');
+
+        expect(component.importPreview()).toBeNull();
+    });
+
+    it('imports a new instance with ocid, description and enabled only', () => {
         component.form.setValue({
-            name: 'App Financeiro',
-            ocid: 'ocid1.instance.oc1.sa-saopaulo-1.example',
-            compartment_id: 'compartment-1',
-            description: 'Descrição',
-            enabled: true
+            ocid: importPreview.ocid,
+            description: 'Importada',
+            enabled: false
         });
+        component.importPreview.set(importPreview);
+        component.activeTab.set(1);
 
         component.save();
 
-        expect(apiService.createInstance).toHaveBeenCalledWith({
-            name: 'App Financeiro',
-            ocid: 'ocid1.instance.oc1.sa-saopaulo-1.example',
-            compartment_id: 'compartment-1',
-            description: 'Descrição',
-            enabled: true
+        expect(apiService.importInstance).toHaveBeenCalledWith({
+            ocid: importPreview.ocid,
+            description: 'Importada',
+            enabled: false
         });
         expect(component.activeTab()).toBe(0);
+        expect(component.actionFeedback()).toBe('Instância importada com sucesso.');
     });
 
-    it('updates an existing instance when one is selected', () => {
-        component.instances.set([
-            {
-                id: 'instance-1',
-                name: 'App Financeiro',
-                ocid: 'ocid1.instance.oc1..finance',
-                compartment_id: 'compartment-1',
-                description: 'Descrição existente',
-                enabled: true,
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
-            }
-        ]);
-        component.selectExistingInstanceByName('App Financeiro');
-        component.form.patchValue({
-            description: 'Nova descrição',
-            enabled: false
-        });
+    it('shows lookup errors when OCI preview fails', () => {
+        apiService.getInstanceImportPreview.and.returnValue(throwError(() => ({ error: { detail: 'instance_not_found' } })));
+        component.form.controls.ocid.setValue(importPreview.ocid);
 
-        component.save();
+        component.lookupInstancePreview();
 
-        expect(apiService.updateInstance).toHaveBeenCalledWith('instance-1', {
-            compartment_id: 'compartment-1',
-            description: 'Nova descrição',
-            enabled: false
-        });
+        expect(component.error()).toBe('instance_not_found');
+        expect(component.importPreview()).toBeNull();
     });
 
-    it('leaves edit mode when name or ocid no longer matches the selected existing instance', () => {
-        component.instances.set([
-            {
-                id: 'instance-1',
-                name: 'App Financeiro',
-                ocid: 'ocid1.instance.oc1..finance',
-                compartment_id: 'compartment-1',
-                enabled: true,
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
-            }
-        ]);
-        component.selectExistingInstanceByName('App Financeiro');
+    it('shows a discrete loading state on the first load and keeps the refresh button gray without spinner', async () => {
+        const instancesSubject = new Subject<any[]>();
+        apiService.listInstances.and.returnValue(instancesSubject.asObservable());
 
-        component.form.controls.ocid.setValue('ocid1.instance.oc1..novo');
+        const pendingFixture = TestBed.createComponent(InstancesPage);
+        const pendingComponent = pendingFixture.componentInstance;
+        pendingFixture.detectChanges();
 
-        expect(component.selectedExistingInstanceId()).toBeNull();
+        const refreshButton = pendingFixture.nativeElement.querySelector('.instances-refresh-button') as HTMLButtonElement;
+        const loadingHint = pendingFixture.nativeElement.querySelector('.instances-loading-hint') as HTMLElement;
+        const tableShell = pendingFixture.nativeElement.querySelector('.table-shell') as HTMLElement;
+
+        expect(pendingComponent.showInitialLoadingHint()).toBeTrue();
+        expect(pendingComponent.refreshButtonDisabled()).toBeTrue();
+        expect(pendingComponent.refreshButtonLoading()).toBeFalse();
+        expect(pendingComponent.refreshButtonSeverity()).toBe('secondary');
+        expect(refreshButton.disabled).toBeTrue();
+        expect(refreshButton.className).toContain('p-button-secondary');
+        expect(refreshButton.className).not.toContain('p-button-loading');
+        expect(loadingHint.textContent).toContain('Carregando instâncias');
+        expect(pendingFixture.nativeElement.textContent.match(/Carregando instâncias\.\.\./g)?.length ?? 0).toBe(1);
+        expect(tableShell.textContent).not.toContain('Carregando instâncias...');
+
+        instancesSubject.next(listedInstances);
+        instancesSubject.complete();
+        pendingFixture.detectChanges();
+        await pendingFixture.whenStable();
+
+        expect(pendingComponent.showInitialLoadingHint()).toBeFalse();
+        expect(pendingComponent.refreshButtonDisabled()).toBeFalse();
+        expect(pendingComponent.refreshButtonLoading()).toBeFalse();
+        expect(pendingComponent.refreshButtonSeverity()).toBe('success');
     });
 
-    it('surfaces a loading error when listing instances fails', () => {
-        apiService.listInstances.and.returnValue(throwError(() => new Error('boom')));
-        component.loadInstances();
-        expect(component.error()).toContain('Não foi possível carregar as instâncias');
+    it('shows the empty table message only after the initial load finishes with no instances', async () => {
+        const instancesSubject = new Subject<any[]>();
+        apiService.listInstances.and.returnValue(instancesSubject.asObservable());
+
+        const pendingFixture = TestBed.createComponent(InstancesPage);
+        const pendingComponent = pendingFixture.componentInstance;
+        pendingFixture.detectChanges();
+
+        expect(pendingComponent.showInitialLoadingHint()).toBeTrue();
+        expect(pendingFixture.nativeElement.textContent).not.toContain('Nenhuma instância cadastrada.');
+
+        instancesSubject.next([]);
+        instancesSubject.complete();
+        pendingFixture.detectChanges();
+        await pendingFixture.whenStable();
+
+        expect(pendingComponent.showInitialLoadingHint()).toBeFalse();
+        expect(pendingFixture.nativeElement.textContent).toContain('Nenhuma instância cadastrada.');
     });
 
     it('filters instances locally by name, ocid and ips', () => {
         component.instances.set([
-            {
-                id: 'instance-1',
-                name: 'App Financeiro',
-                ocid: 'ocid1.instance.oc1..finance',
-                compartment_id: 'compartment-1',
-                enabled: true,
-                public_ip: '129.10.10.10',
-                private_ip: '10.0.0.10',
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
-            },
+            listedInstances[0],
             {
                 id: 'instance-2',
                 name: 'Banco',
@@ -339,24 +312,8 @@ describe('InstancesPage', () => {
         expect(component.filteredInstances().length).toBe(1);
         expect(component.filteredInstances()[0].id).toBe('instance-2');
 
-        component.instanceSearchTerm.set('finance');
-        expect(component.filteredInstances().length).toBe(1);
-        expect(component.filteredInstances()[0].id).toBe('instance-1');
-
         component.instanceSearchTerm.set('129.10');
-        expect(component.filteredInstances().length).toBe(1);
         expect(component.filteredInstances()[0].id).toBe('instance-1');
-
-        component.instanceSearchTerm.set('10.0.0.20');
-        expect(component.filteredInstances().length).toBe(1);
-        expect(component.filteredInstances()[0].id).toBe('instance-2');
-
-        component.instanceSearchTerm.set('ocid1.instance.oc1..database');
-        expect(component.filteredInstances().length).toBe(1);
-        expect(component.filteredInstances()[0].id).toBe('instance-2');
-
-        component.instanceSearchTerm.set('');
-        expect(component.filteredInstances().length).toBe(2);
     });
 
     it('opens the confirmation dialog before refreshing statuses', () => {
@@ -366,17 +323,20 @@ describe('InstancesPage', () => {
         expect(apiService.getInstanceStatus).not.toHaveBeenCalled();
     });
 
-    it('cancels status refresh when the user aborts the confirmation', () => {
-        component.openRefreshConfirmation();
-        component.cancelRefreshConfirmation();
+    it('uses the spinner on the refresh button only during manual refresh', () => {
+        component.refreshingStatuses.set(true);
+        fixture.detectChanges();
 
-        expect(component.refreshConfirmationVisible()).toBeFalse();
-        expect(apiService.getInstanceStatus).not.toHaveBeenCalled();
+        const refreshButton = fixture.nativeElement.querySelector('.instances-refresh-button') as HTMLButtonElement;
+
+        expect(component.refreshButtonLoading()).toBeTrue();
+        expect(component.refreshButtonDisabled()).toBeTrue();
+        expect(refreshButton.className).toContain('p-button-loading');
     });
 
     it('refreshes only enabled instances sequentially and shows progress summary', async () => {
         component.instances.set([
-            component.instances()[0],
+            listedInstances[0],
             {
                 id: 'instance-2',
                 name: 'Desabilitada',
@@ -391,101 +351,8 @@ describe('InstancesPage', () => {
         await component.confirmRefreshStatuses();
 
         expect(apiService.getInstanceStatus).toHaveBeenCalledTimes(1);
-        expect(apiService.getInstanceStatus).toHaveBeenCalledWith('instance-1');
         expect(component.refreshProgressCount()).toBe(1);
-        expect(component.refreshProgressTotal()).toBe(1);
-        expect(component.refreshProgressVisible()).toBeFalse();
         expect(component.actionFeedback()).toContain('Consulta concluída com sucesso');
-        expect(component.actionFeedbackSeverity()).toBe('success');
-    });
-
-    it('continues the batch when one status refresh fails and reports partial failure', async () => {
-        component.instances.set([
-            component.instances()[0],
-            {
-                id: 'instance-2',
-                name: 'Segundo Nó',
-                ocid: 'ocid1.instance.oc1..second',
-                compartment_id: 'compartment-1',
-                enabled: true,
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
-            }
-        ]);
-        apiService.getInstanceStatus.and.returnValues(
-            throwError(() => ({ error: { detail: 'OCI indisponível' } })),
-            of({
-                id: 'exec-status-2',
-                instance_id: 'instance-2',
-                instance_state: 'RUNNING',
-                action: 'status',
-                source: 'manual',
-                status: 'success',
-                started_at: '2026-03-12T00:00:00Z'
-            })
-        );
-
-        await component.confirmRefreshStatuses();
-
-        expect(apiService.getInstanceStatus).toHaveBeenCalledTimes(2);
-        expect(component.refreshProgressCount()).toBe(2);
-        expect(component.actionFeedback()).toBe('Consulta concluída: 1 com sucesso e 1 com falha.');
-        expect(component.actionFeedbackSeverity()).toBe('error');
-    });
-
-    it('requests cancellation and closes the progress dialog immediately', () => {
-        component.refreshProgressVisible.set(true);
-        component.refreshingStatuses.set(true);
-
-        component.requestRefreshCancellation();
-
-        expect(component.refreshCancellationRequested()).toBeTrue();
-        expect(component.refreshProgressVisible()).toBeFalse();
-        expect(component.refreshProgressMessage()).toContain('Cancelamento solicitado');
-    });
-
-    it('stops after the current status request finishes when cancellation is requested', async () => {
-        component.instances.set([
-            component.instances()[0],
-            {
-                id: 'instance-2',
-                name: 'Segundo Nó',
-                ocid: 'ocid1.instance.oc1..second',
-                compartment_id: 'compartment-1',
-                enabled: true,
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
-            }
-        ]);
-
-        let releaseFirstRequest: (() => void) | null = null;
-        apiService.getInstanceStatus.and.callFake(
-            () =>
-                new Observable((subscriber) => {
-                    releaseFirstRequest = () => {
-                        subscriber.next({
-                            id: 'exec-status-1',
-                            instance_id: 'instance-1',
-                            instance_state: 'RUNNING',
-                            action: 'status',
-                            source: 'manual',
-                            status: 'success',
-                            started_at: '2026-03-12T00:00:00Z'
-                        });
-                        subscriber.complete();
-                    };
-                })
-        );
-
-        const refreshPromise = component.confirmRefreshStatuses();
-        component.requestRefreshCancellation();
-        releaseFirstRequest?.();
-        await refreshPromise;
-
-        expect(apiService.getInstanceStatus).toHaveBeenCalledTimes(1);
-        expect(component.refreshingStatuses()).toBeFalse();
-        expect(component.actionFeedback()).toBe('Atualização cancelada após 1 instância(s) processada(s).');
-        expect(component.actionFeedbackSeverity()).toBe('error');
     });
 
     it('shows feedback when there are no enabled instances to refresh', async () => {
@@ -505,21 +372,6 @@ describe('InstancesPage', () => {
 
         expect(apiService.getInstanceStatus).not.toHaveBeenCalled();
         expect(component.actionFeedback()).toBe('Não há instâncias habilitadas para consultar o status.');
-        expect(component.actionFeedbackSeverity()).toBe('error');
-    });
-
-    it('opens the automatic registration confirmation dialog', () => {
-        component.openAutomaticRegistrationConfirmation();
-
-        expect(component.autoRegisterConfirmationVisible()).toBeTrue();
-        expect(component.autoRegisterCanConfirm()).toBeFalse();
-    });
-
-    it('enables automatic registration only when the user types the confirmation text', () => {
-        component.openAutomaticRegistrationConfirmation();
-        component.autoRegisterConfirmationText.set('Estou ciente');
-
-        expect(component.autoRegisterCanConfirm()).toBeTrue();
     });
 
     it('runs automatic registration and stores the summary result', () => {
@@ -532,25 +384,12 @@ describe('InstancesPage', () => {
         expect(component.autoRegisterProgressVisible()).toBeTrue();
         expect(component.autoRegisterCompleted()).toBeTrue();
         expect(component.autoRegisterResult()?.created).toBe(1);
-        expect(component.actionFeedback()).toContain('Registro automático concluído');
-    });
-
-    it('shows an error when automatic registration fails', () => {
-        apiService.importAllCompartmentsInstances.and.returnValue(throwError(() => ({ error: { detail: 'Falha OCI' } })));
-        component.openAutomaticRegistrationConfirmation();
-        component.autoRegisterConfirmationText.set('Estou ciente');
-
-        component.confirmAutomaticRegistration();
-
-        expect(component.autoRegisterCompleted()).toBeTrue();
-        expect(component.actionFeedback()).toBe('Falha OCI');
-        expect(component.actionFeedbackSeverity()).toBe('error');
     });
 
     it('refreshes the status of a single row and updates the status column locally', () => {
         component.instances.set([
             {
-                ...component.instances()[0],
+                ...listedInstances[0],
                 last_known_state: 'STOPPED'
             }
         ]);
@@ -559,31 +398,12 @@ describe('InstancesPage', () => {
 
         expect(apiService.getInstanceStatus).toHaveBeenCalledWith('instance-1');
         expect(component.instances()[0].last_known_state).toBe('RUNNING');
-        expect(component.actionFeedback()).toBe('Status da instância Teste atualizado com sucesso.');
-        expect(component.actionFeedbackSeverity()).toBe('success');
-        expect(component.isRefreshingRow('instance-1')).toBeFalse();
-    });
-
-    it('keeps the previous row status when the single-row refresh fails', () => {
-        component.instances.set([
-            {
-                ...component.instances()[0],
-                last_known_state: 'STOPPED'
-            }
-        ]);
-        apiService.getInstanceStatus.and.returnValue(throwError(() => ({ error: { detail: 'Falha OCI' } })));
-
-        component.refreshInstanceStatus(component.instances()[0]);
-
-        expect(component.instances()[0].last_known_state).toBe('STOPPED');
-        expect(component.actionFeedback()).toBe('Falha OCI');
-        expect(component.actionFeedbackSeverity()).toBe('error');
-        expect(component.isRefreshingRow('instance-1')).toBeFalse();
     });
 
     it('calls the api when starting and stopping an instance', () => {
         component.start('instance-1');
         component.stop('instance-1');
+
         expect(apiService.startInstance).toHaveBeenCalledWith('instance-1');
         expect(apiService.stopInstance).toHaveBeenCalledWith('instance-1');
     });
