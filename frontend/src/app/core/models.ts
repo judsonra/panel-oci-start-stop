@@ -79,6 +79,17 @@ export interface ReportResourceCostModel {
     total_amount: number;
 }
 
+export interface ReportDetailedCostModel {
+    date: string;
+    compartment_id?: string | null;
+    compartment_name?: string | null;
+    service?: string | null;
+    sku_name?: string | null;
+    resource_id?: string | null;
+    resource_name?: string | null;
+    total_amount: number;
+}
+
 export interface ReportCompartmentCostModel {
     compartment_id?: string | null;
     compartment_name?: string | null;
@@ -98,6 +109,7 @@ export interface CostByCompartmentReportModel {
     total_amount: number;
     daily_totals: ReportDailyCostModel[];
     compartments: ReportCompartmentCostModel[];
+    detailed_items: ReportDetailedCostModel[];
 }
 
 export interface ApiErrorResponse {

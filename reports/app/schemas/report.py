@@ -16,6 +16,17 @@ class ReportResourceCostRead(BaseModel):
     total_amount: float
 
 
+class ReportDetailedCostRead(BaseModel):
+    date: str
+    compartment_id: str | None = None
+    compartment_name: str | None = None
+    service: str | None = None
+    sku_name: str | None = None
+    resource_id: str | None = None
+    resource_name: str | None = None
+    total_amount: float
+
+
 class ReportCompartmentCostRead(BaseModel):
     compartment_id: str | None = None
     compartment_name: str | None = None
@@ -37,6 +48,7 @@ class CostByCompartmentReportRead(BaseModel):
     total_amount: float
     daily_totals: list[ReportDailyCostRead]
     compartments: list[ReportCompartmentCostRead]
+    detailed_items: list[ReportDetailedCostRead]
 
 
 class RefreshCostReportRequest(BaseModel):
