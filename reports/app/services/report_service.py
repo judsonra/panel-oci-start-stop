@@ -12,6 +12,7 @@ from app.schemas.report import (
     CostByCompartmentReportRead,
     ReportCompartmentCostRead,
     ReportDailyCostRead,
+    ReportDetailedCostRead,
     ReportResourceCostRead,
 )
 from app.services.oci_usage import OCIUsageService
@@ -35,6 +36,7 @@ class ReportService:
                 total_amount=0.0,
                 daily_totals=[],
                 compartments=[],
+                detailed_items=[],
             )
         return self._build_report_response(period, source="cache")
 
@@ -154,4 +156,26 @@ class ReportService:
             total_amount=float(period.total_amount),
             daily_totals=[ReportDailyCostRead(date=date_key, amount=float(amount)) for date_key, amount in sorted(daily_totals.items())],
             compartments=compartments,
+            detailed_items=[
+                ReportDetailedCostRead(
+                    date=entry.usage_date.isoformat(),
+                    compartment_id=entry.compartment_id,
+                    compartment_name=entry.compartment_name or "Compartimento não informado",
+                    service=entry.service,
+                    sku_name=entry.sku_name,
+                    resource_id=entry.resource_id,
+                    resource_name=entry.resource_name,
+                    total_amount=float(entry.amount),
+                )
+                for entry in sorted(
+                    period.entries,
+                    key=lambda item: (
+                        item.usage_date,
+                        item.compartment_name or "",
+                        item.service or "",
+                        item.sku_name or "",
+                        item.resource_name or item.resource_id or "",
+                    ),
+                )
+            ],
         )

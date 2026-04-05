@@ -45,8 +45,34 @@ describe('ApiService', () => {
             available: true,
             total_amount: 0,
             daily_totals: [],
-            compartments: []
+            compartments: [],
+            detailed_items: []
         });
+    });
+
+    it('keeps reports refresh endpoints under reportsApiBaseUrl only', () => {
+        service.refreshCostByCompartment({ year: 2026, month: 3 }).subscribe();
+
+        const request = httpMock.expectOne('http://localhost:8010/api/reports/cost-by-compartment/refresh');
+        expect(request.request.method).toBe('POST');
+        expect(request.request.body).toEqual({ year: 2026, month: 3 });
+        request.flush({
+            year: 2026,
+            month: 3,
+            source: 'oci',
+            sync_status: 'ready',
+            available: true,
+            total_amount: 0,
+            daily_totals: [],
+            compartments: [],
+            detailed_items: []
+        });
+
+        expect(httpMock.match((candidate) => candidate.url.startsWith('http://localhost:8000/api/reports')).length).toBe(0);
+    });
+
+    it('builds reports export URLs from reportsApiBaseUrl only', () => {
+        expect(service.getCostByCompartmentCsvUrl(2026, 3)).toBe('http://localhost:8010/api/reports/cost-by-compartment.csv?year=2026&month=3');
     });
 
     it('uses the backend api prefix for compartment endpoints', () => {

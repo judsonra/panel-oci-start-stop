@@ -67,6 +67,7 @@ export class ApiService {
         return this.resolveDocsUrl(this.reportsBaseUrl);
     }
 
+    // Backend microservice: instance control and operational entities.
     listInstances(): Observable<InstanceModel[]> {
         return this.http.get<InstanceModel[]>(`${this.baseUrl}/instances`);
     }
@@ -163,6 +164,7 @@ export class ApiService {
         return this.http.get<ExecutionModel[]>(`${this.baseUrl}/executions`);
     }
 
+    // Reports microservice: all report data, cache refresh and exports.
     getCostByCompartment(year: number, month: number): Observable<CostByCompartmentReportModel> {
         return this.http.get<CostByCompartmentReportModel>(`${this.reportsBaseUrl}/reports/cost-by-compartment`, {
             params: { year, month }
