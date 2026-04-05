@@ -12,3 +12,4 @@ class Group(UUIDMixin, TimestampMixin, Base):
     normalized_name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
 
     instances = relationship("Instance", secondary=group_instances, back_populates="groups")
+    schedules = relationship("Schedule", back_populates="group")

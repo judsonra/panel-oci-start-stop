@@ -476,6 +476,16 @@ select {
     gap: 1rem;
 }
 
+.auto-register-dialog-copy p {
+    line-height: 1.6;
+}
+
+.auto-register-warning-emphasis {
+    font-weight: 800;
+    font-size: 1.02em;
+    letter-spacing: 0.02em;
+}
+
 .auto-register-dialog-copy label {
     display: flex;
     flex-direction: column;
@@ -598,8 +608,22 @@ select {
 .schedule-status-cell {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
+    gap: 0.35rem;
+    flex-wrap: nowrap;
+}
+
+.schedule-target-column {
+    text-align: center;
+}
+
+.schedule-status-column .p-splitbutton {
+    flex-shrink: 0;
+}
+
+@media (max-width: 960px) {
+    .schedule-status-cell {
+        flex-wrap: wrap;
+    }
 }
 
 .table-filter-row {

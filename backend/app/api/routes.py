@@ -1,10 +1,10 @@
 from dataclasses import asdict
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import text
 
-from app.api.deps import get_compartment_service, get_group_service, get_instance_service, get_schedule_service
+from app.api.deps import get_compartment_service, get_group_service, get_import_job_service, get_instance_service, get_schedule_service
 from app.core.security import CurrentUser, get_current_user
 from app.repositories.execution_repository import ExecutionRepository
 from app.schemas.compartment import CompartmentRead
@@ -13,6 +13,8 @@ from app.schemas.execution import ExecutionLogRead
 from app.schemas.group import GroupCreate, GroupRead, GroupTreeCompartmentRead, GroupTreeInstanceRead, GroupUpdate
 from app.schemas.instance import (
     CompartmentInstancesImportRead,
+    ImportInstancesJobCreateRead,
+    ImportInstancesJobStatusRead,
     InstanceActionResult,
     InstanceCreate,
     InstanceImportCreate,
@@ -25,6 +27,7 @@ from app.schemas.instance import (
 from app.schemas.schedule import ScheduleCreate, ScheduleRead, ScheduleUpdate
 from app.services.compartment_service import CompartmentService
 from app.services.group_service import GroupService
+from app.services.import_job_service import ImportJobService
 from app.services.instance_service import InstanceService
 from app.services.oci_cli import OCIService, get_oci_service
 from app.services.schedule_service import ScheduleService
@@ -36,7 +39,12 @@ router = APIRouter(prefix="/api")
 
 
 def serialize_schedule(schedule) -> ScheduleRead:
-    return ScheduleRead.model_validate(schedule).model_copy(update={"instance_name": schedule.instance.name if schedule.instance else None})
+    return ScheduleRead.model_validate(schedule).model_copy(
+        update={
+            "instance_name": schedule.instance.name if schedule.instance else None,
+            "group_name": schedule.group.name if getattr(schedule, "group", None) else None,
+        }
+    )
 
 
 def serialize_group(group) -> GroupRead:
@@ -187,6 +195,46 @@ def import_all_compartment_instances(
     service: InstanceService = Depends(get_instance_service),
 ) -> CompartmentInstancesImportRead:
     return CompartmentInstancesImportRead(**asdict(service.import_all_compartment_instances()))
+
+
+@router.post("/compartiments/instancesall/jobs", response_model=ImportInstancesJobCreateRead, status_code=status.HTTP_202_ACCEPTED)
+def create_import_all_compartment_instances_job(
+    _: CurrentUser = Depends(get_current_user),
+    service: ImportJobService = Depends(get_import_job_service),
+) -> ImportInstancesJobCreateRead:
+    job = service.start_import_all_compartments_job()
+    return ImportInstancesJobCreateRead(job_id=job.job_id, status=job.status, started_at=job.started_at)
+
+
+@router.get("/compartiments/instancesall/jobs/{job_id}", response_model=ImportInstancesJobStatusRead)
+def get_import_all_compartment_instances_job(
+    job_id: str,
+    _: CurrentUser = Depends(get_current_user),
+    service: ImportJobService = Depends(get_import_job_service),
+) -> ImportInstancesJobStatusRead:
+    try:
+        job = service.get_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import job not found") from exc
+
+    return ImportInstancesJobStatusRead(
+        job_id=job.job_id,
+        status=job.status,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        total_compartments=job.total_compartments,
+        processed_compartments=job.processed_compartments,
+        total_instances=job.total_instances,
+        processed_instances=job.processed_instances,
+        created=job.created,
+        updated=job.updated,
+        unchanged=job.unchanged,
+        failed=job.failed,
+        current_compartment_name=job.current_compartment_name,
+        current_instance_name=job.current_instance_name,
+        result=CompartmentInstancesImportRead(**asdict(job.result)) if job.result is not None else None,
+        error=job.error,
+    )
 
 
 @router.get("/compartiments/instances/{instance_ocid}/vnic", response_model=InstanceVnicRead)

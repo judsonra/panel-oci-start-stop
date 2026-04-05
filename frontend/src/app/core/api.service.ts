@@ -9,6 +9,8 @@ import {
     GroupModel,
     GroupTreeCompartmentModel,
     ImportAllCompartmentsModel,
+    ImportAllCompartmentsJobCreateModel,
+    ImportAllCompartmentsJobStatusModel,
     InstanceImportPreviewModel,
     InstanceModel,
     InstanceVnicModel,
@@ -106,6 +108,14 @@ export class ApiService {
 
     importAllCompartmentsInstances(): Observable<ImportAllCompartmentsModel> {
         return this.http.get<ImportAllCompartmentsModel>(`${this.baseUrl}/compartiments/instancesall`);
+    }
+
+    startImportAllCompartmentsInstancesJob(): Observable<ImportAllCompartmentsJobCreateModel> {
+        return this.http.post<ImportAllCompartmentsJobCreateModel>(`${this.baseUrl}/compartiments/instancesall/jobs`, {});
+    }
+
+    getImportAllCompartmentsInstancesJob(jobId: string): Observable<ImportAllCompartmentsJobStatusModel> {
+        return this.http.get<ImportAllCompartmentsJobStatusModel>(`${this.baseUrl}/compartiments/instancesall/jobs/${encodeURIComponent(jobId)}`);
     }
 
     getInstanceVnic(instanceOcid: string): Observable<InstanceVnicModel> {

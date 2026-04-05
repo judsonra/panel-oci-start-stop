@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { finalize } from 'rxjs';
 import { MenuItem } from 'primeng/api';
 import { AutoCompleteCompleteEvent, AutoCompleteModule } from 'primeng/autocomplete';
@@ -9,14 +9,16 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService } from 'primeng/api';
 import { DatePickerModule } from 'primeng/datepicker';
+import { InputMaskModule } from 'primeng/inputmask';
 import { MessageModule } from 'primeng/message';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { SplitButtonModule } from 'primeng/splitbutton';
 import { TableModule } from 'primeng/table';
 import { TabsModule } from 'primeng/tabs';
 import { TagModule } from 'primeng/tag';
+import { TooltipModule } from 'primeng/tooltip';
 import { ApiService } from '@/app/core/api.service';
-import { InstanceModel, ScheduleModel } from '@/app/core/models';
+import { GroupModel, InstanceModel, ScheduleModel } from '@/app/core/models';
 
 type ScheduleTypeValue = 'one_time' | 'recurring';
 type ScheduleActionValue = 'start' | 'stop' | 'restart';
@@ -26,23 +28,58 @@ interface DayOption {
     value: number;
 }
 
+type ScheduleTargetTabValue = 0 | 1;
+
+interface ScheduleFormValue {
+    target_type: 'instance' | 'group' | null;
+    instance: InstanceModel | string | null;
+    instance_id: string;
+    group: GroupModel | string | null;
+    group_id: string;
+    type: ScheduleTypeValue | null;
+    action: ScheduleActionValue | null;
+    run_at_utc: Date | null;
+    run_time_utc: Date | null;
+    days_of_week: number[] | null;
+    time_utc: Date | null;
+    enabled: boolean | null;
+}
+
+interface NormalizedScheduleFormValue {
+    target_type: 'instance' | 'group';
+    instance: InstanceModel | string | null;
+    instance_id: string;
+    group: GroupModel | string | null;
+    group_id: string;
+    type: ScheduleTypeValue;
+    action: ScheduleActionValue;
+    run_at_utc: Date | null;
+    run_time_utc: Date | null;
+    days_of_week: number[];
+    time_utc: Date | null;
+    enabled: boolean;
+}
+
 @Component({
     selector: 'app-schedules-page',
     standalone: true,
     imports: [
         CommonModule,
+        FormsModule,
         ReactiveFormsModule,
         AutoCompleteModule,
         ButtonModule,
         CheckboxModule,
         ConfirmDialogModule,
         DatePickerModule,
+        InputMaskModule,
         MessageModule,
         MultiSelectModule,
         SplitButtonModule,
         TableModule,
         TabsModule,
-        TagModule
+        TagModule,
+        TooltipModule
     ],
     providers: [ConfirmationService],
     template: `
@@ -50,7 +87,7 @@ interface DayOption {
             <div>
                 <span class="section-kicker">Agendamentos</span>
                 <h2>Automação recorrente e pontual</h2>
-                <p>Defina a instância, tipo de execução e ação desejada para o agendamento em UTC.</p>
+                <p>Defina a instância ou grupo, tipo de execução e ação desejada para o agendamento em UTC.</p>
             </div>
         </section>
 
@@ -72,21 +109,29 @@ interface DayOption {
                             <p-table [value]="schedules()" [loading]="loading()" responsiveLayout="scroll">
                                 <ng-template pTemplate="header">
                                     <tr>
-                                        <th>Instância</th>
+                                        <th>Instâncias/Grupos</th>
+                                        <th class="schedule-target-column">Alvo</th>
                                         <th>Tipo</th>
-                                        <th>Ação</th>
-                                        <th>Execução UTC</th>
-                                        <th>Status</th>
+                                        <th class="schedule-action-column">Ação</th>
+                                        <th class="schedule-execution-column">Execução UTC</th>
+                                        <th class="schedule-status-column">Status</th>
                                     </tr>
                                 </ng-template>
                                 <ng-template pTemplate="body" let-schedule>
                                     <tr>
-                                        <td>{{ schedule.instance_name || schedule.instance_id }}</td>
+                                        <td>{{ scheduleDisplayName(schedule) }}</td>
+                                        <td class="schedule-target-column">
+                                            <i
+                                                [class]="schedule.target_type === 'group' ? 'pi pi-sitemap' : 'pi pi-desktop'"
+                                                [pTooltip]="schedule.target_type === 'group' ? 'Grupo de instância' : 'Instância'"
+                                                tooltipPosition="top"
+                                            ></i>
+                                        </td>
                                         <td>{{ schedule.type === 'one_time' ? 'Execução única' : 'Recorrente' }}</td>
-                                        <td>{{ schedule.action | uppercase }}</td>
-                                        <td>{{ executionLabel(schedule) }}</td>
-                                        <td class="schedule-status-cell">
-                                            <p-tag [severity]="schedule.enabled ? 'success' : 'contrast'" [value]="schedule.enabled ? 'ativo' : 'inativo'"></p-tag>
+                                        <td class="schedule-action-column">{{ schedule.action | uppercase }}</td>
+                                        <td class="schedule-execution-column">{{ executionLabel(schedule) }}</td>
+                                        <td class="schedule-status-cell schedule-status-column">
+                                            <p-tag [value]="schedule.enabled ? 'ON' : 'OFF'" [severity]="schedule.enabled ? 'success' : 'warn'"></p-tag>
                                             <p-splitbutton
                                                 [label]="schedule.enabled ? 'Off' : 'On'"
                                                 [icon]="schedule.enabled ? 'pi pi-pause' : 'pi pi-play'"
@@ -108,21 +153,48 @@ interface DayOption {
                                 <p-message severity="info" text="Editando agendamento selecionado."></p-message>
                             }
 
-                            <label>
-                                <span>Instância</span>
-                                <p-autocomplete
-                                    formControlName="instance"
-                                    [suggestions]="instanceSuggestions()"
-                                    optionLabel="name"
-                                    [dropdown]="true"
-                                    dropdownMode="blank"
-                                    [completeOnFocus]="true"
-                                    [showClear]="true"
-                                    [forceSelection]="true"
-                                    placeholder="Selecione pelo nome da instância"
-                                    (completeMethod)="filterInstances($event)"
-                                />
-                            </label>
+                            <p-tabs [value]="createTargetTab()" (valueChange)="setCreateTargetTab($event)">
+                                <p-tablist>
+                                    <p-tab [value]="0">Instância</p-tab>
+                                    <p-tab [value]="1">Grupo de instância</p-tab>
+                                </p-tablist>
+                                <p-tabpanels>
+                                    <p-tabpanel [value]="0">
+                                        <label>
+                                            <span>Instância</span>
+                                            <p-autocomplete
+                                                formControlName="instance"
+                                                [suggestions]="instanceSuggestions()"
+                                                optionLabel="name"
+                                                [dropdown]="true"
+                                                dropdownMode="blank"
+                                                [completeOnFocus]="true"
+                                                [showClear]="true"
+                                                [forceSelection]="true"
+                                                placeholder="Selecione pelo nome da instância"
+                                                (completeMethod)="filterInstances($event)"
+                                            />
+                                        </label>
+                                    </p-tabpanel>
+                                    <p-tabpanel [value]="1">
+                                        <label>
+                                            <span>Grupo de instância</span>
+                                            <p-autocomplete
+                                                formControlName="group"
+                                                [suggestions]="groupSuggestions()"
+                                                optionLabel="name"
+                                                [dropdown]="true"
+                                                dropdownMode="blank"
+                                                [completeOnFocus]="true"
+                                                [showClear]="true"
+                                                [forceSelection]="true"
+                                                placeholder="Selecione pelo nome do grupo"
+                                                (completeMethod)="filterGroups($event)"
+                                            />
+                                        </label>
+                                    </p-tabpanel>
+                                </p-tabpanels>
+                            </p-tabs>
 
                             <label>
                                 <span>Tipo</span>
@@ -144,14 +216,29 @@ interface DayOption {
                             @if (isOneTime()) {
                                 <label>
                                     <span>Data</span>
-                                    <p-datepicker formControlName="run_at_utc" [showIcon]="true" appendTo="body" dateFormat="dd/mm/yy" />
+                                    <p-datepicker
+                                        formControlName="run_at_utc"
+                                        inputId="schedule-run-at-input"
+                                        [showIcon]="true"
+                                        [showButtonBar]="true"
+                                        appendTo="body"
+                                        dateFormat="dd/mm/yy"
+                                    />
                                 </label>
                             }
 
                             @if (isOneTime()) {
                                 <label>
                                     <span>Hora</span>
-                                    <p-datepicker formControlName="run_time_utc" [timeOnly]="true" hourFormat="24" appendTo="body" />
+                                    <p-inputmask
+                                        [ngModel]="runTimeInput()"
+                                        (ngModelChange)="onRunTimeInputChange($event)"
+                                        [ngModelOptions]="{ standalone: true }"
+                                        mask="99:99"
+                                        slotChar="hh:mm"
+                                        placeholder="hh:mm"
+                                        [autoClear]="false"
+                                    />
                                 </label>
                             }
 
@@ -172,7 +259,15 @@ interface DayOption {
                             @if (isRecurring()) {
                                 <label>
                                     <span>Horário UTC</span>
-                                    <p-datepicker formControlName="time_utc" [timeOnly]="true" hourFormat="24" appendTo="body" />
+                                    <p-inputmask
+                                        [ngModel]="recurringTimeInput()"
+                                        (ngModelChange)="onRecurringTimeInputChange($event)"
+                                        [ngModelOptions]="{ standalone: true }"
+                                        mask="99:99"
+                                        slotChar="hh:mm"
+                                        placeholder="hh:mm"
+                                        [autoClear]="false"
+                                    />
                                 </label>
                             }
 
@@ -204,10 +299,13 @@ export class SchedulesPage implements OnInit, OnDestroy {
     private readonly formBuilder = inject(FormBuilder);
     private readonly confirmationService = inject(ConfirmationService);
     private clockTimer: number | null = null;
+    private dateInputCleanup: (() => void) | null = null;
 
     readonly schedules = signal<ScheduleModel[]>([]);
     readonly instances = signal<InstanceModel[]>([]);
+    readonly groups = signal<GroupModel[]>([]);
     readonly instanceSuggestions = signal<InstanceModel[]>([]);
+    readonly groupSuggestions = signal<GroupModel[]>([]);
     readonly loading = signal(false);
     readonly saving = signal(false);
     readonly feedback = signal<string | null>(null);
@@ -215,7 +313,10 @@ export class SchedulesPage implements OnInit, OnDestroy {
     readonly editingScheduleId = signal<string | null>(null);
     readonly rowBusyIds = signal<Set<string>>(new Set());
     readonly activeTab = signal(0);
+    readonly createTargetTab = signal<ScheduleTargetTabValue>(0);
     readonly currentUtcDate = signal(new Date());
+    readonly runTimeInput = signal('');
+    readonly recurringTimeInput = signal('');
     readonly utcClockDisplay = computed(() =>
         this.currentUtcDate().toLocaleTimeString('pt-BR', {
             timeZone: 'UTC',
@@ -237,8 +338,11 @@ export class SchedulesPage implements OnInit, OnDestroy {
     ];
 
     readonly form = this.formBuilder.group({
-        instance: this.formBuilder.control<InstanceModel | string | null>(null, Validators.required),
+        target_type: this.formBuilder.control<'instance' | 'group'>('instance', Validators.required),
+        instance: this.formBuilder.control<InstanceModel | string | null>(null),
         instance_id: this.formBuilder.control('', { nonNullable: true }),
+        group: this.formBuilder.control<GroupModel | string | null>(null),
+        group_id: this.formBuilder.control('', { nonNullable: true }),
         type: this.formBuilder.control<ScheduleTypeValue>('one_time', Validators.required),
         action: this.formBuilder.control<ScheduleActionValue>('start', Validators.required),
         run_at_utc: this.formBuilder.control<Date | null>(null),
@@ -252,15 +356,24 @@ export class SchedulesPage implements OnInit, OnDestroy {
         this.form.controls.instance.valueChanges.subscribe((value) => {
             this.form.controls.instance_id.setValue(typeof value === 'object' && value ? value.id : '', { emitEvent: false });
         });
+        this.form.controls.group.valueChanges.subscribe((value) => {
+            this.form.controls.group_id.setValue(typeof value === 'object' && value ? value.id : '', { emitEvent: false });
+        });
+        this.form.controls.run_at_utc.valueChanges.subscribe((value) => {
+            this.syncDateInputValue(value);
+        });
         this.loadSchedules();
         this.loadInstances();
+        this.loadGroups();
         this.startUtcClock();
+        this.scheduleDateInputBinding();
     }
 
     ngOnDestroy(): void {
         if (this.clockTimer !== null) {
             window.clearInterval(this.clockTimer);
         }
+        this.dateInputCleanup?.();
     }
 
     isOneTime(): boolean {
@@ -287,6 +400,14 @@ export class SchedulesPage implements OnInit, OnDestroy {
         });
     }
 
+    loadGroups(): void {
+        this.api.listGroups().subscribe((items) => {
+            this.groups.set(items);
+            this.groupSuggestions.set(items);
+            this.syncSelectedGroupFromId();
+        });
+    }
+
     filterInstances(event: AutoCompleteCompleteEvent): void {
         const query = (event.query ?? '').trim().toLowerCase();
         if (!query) {
@@ -297,12 +418,25 @@ export class SchedulesPage implements OnInit, OnDestroy {
         this.instanceSuggestions.set(this.instances().filter((instance) => instance.name.toLowerCase().includes(query)));
     }
 
+    filterGroups(event: AutoCompleteCompleteEvent): void {
+        const query = (event.query ?? '').trim().toLowerCase();
+        if (!query) {
+            this.groupSuggestions.set(this.groups());
+            return;
+        }
+
+        this.groupSuggestions.set(this.groups().filter((group) => group.name.toLowerCase().includes(query)));
+    }
+
     onTypeChange(): void {
         if (this.isOneTime()) {
             this.form.patchValue({ days_of_week: [], time_utc: null });
+            this.recurringTimeInput.set('');
         } else {
             this.form.patchValue({ run_at_utc: null, run_time_utc: null });
+            this.runTimeInput.set('');
         }
+        this.scheduleDateInputBinding();
     }
 
     save(): void {
@@ -313,16 +447,8 @@ export class SchedulesPage implements OnInit, OnDestroy {
             return;
         }
 
-        const raw = this.form.getRawValue();
-        const payload: Partial<ScheduleModel> = {
-            instance_id: raw.instance_id,
-            type: raw.type ?? 'one_time',
-            action: raw.action ?? 'start',
-            enabled: raw.enabled ?? true,
-            run_at_utc: raw.type === 'one_time' && raw.run_at_utc && raw.run_time_utc ? this.toUtcDateTimeIso(raw.run_at_utc, raw.run_time_utc) : null,
-            days_of_week: raw.type === 'recurring' ? raw.days_of_week : null,
-            time_utc: raw.type === 'recurring' && raw.time_utc ? this.toHourMinute(raw.time_utc) : null
-        };
+        const raw = this.normalizeScheduleFormValue(this.form.getRawValue());
+        const payload = this.editingScheduleId() ? this.buildUpdatePayload(raw) : this.buildCreatePayload(raw);
 
         this.saving.set(true);
 
@@ -394,17 +520,27 @@ export class SchedulesPage implements OnInit, OnDestroy {
         return [days, schedule.time_utc].filter(Boolean).join(' - ') || '-';
     }
 
+    scheduleDisplayName(schedule: ScheduleModel): string {
+        return schedule.target_type === 'group'
+            ? schedule.group_name || schedule.group_id || '-'
+            : schedule.instance_name || schedule.instance_id || '-';
+    }
+
     isRowBusy(scheduleId: string): boolean {
         return this.rowBusyIds().has(scheduleId);
     }
 
     editSchedule(schedule: ScheduleModel): void {
-        const instance = this.instances().find((item) => item.id === schedule.instance_id) ?? null;
+        const instance = schedule.instance_id ? this.instances().find((item) => item.id === schedule.instance_id) ?? null : null;
+        const group = schedule.group_id ? this.groups().find((item) => item.id === schedule.group_id) ?? null : null;
         this.editingScheduleId.set(schedule.id);
         const runAtUtc = schedule.run_at_utc ? new Date(schedule.run_at_utc) : null;
         this.form.reset({
+            target_type: schedule.target_type,
             instance,
-            instance_id: schedule.instance_id,
+            instance_id: schedule.instance_id ?? '',
+            group,
+            group_id: schedule.group_id ?? '',
             type: schedule.type,
             action: schedule.action,
             run_at_utc: runAtUtc,
@@ -413,16 +549,24 @@ export class SchedulesPage implements OnInit, OnDestroy {
             time_utc: schedule.time_utc ? this.fromHourMinute(schedule.time_utc) : null,
             enabled: schedule.enabled
         });
+        this.runTimeInput.set(runAtUtc ? this.toHourMinute(runAtUtc) : '');
+        this.recurringTimeInput.set(schedule.time_utc ?? '');
         this.instanceSuggestions.set(this.instances());
+        this.groupSuggestions.set(this.groups());
+        this.createTargetTab.set(schedule.target_type === 'group' ? 1 : 0);
         this.clearFeedback();
         this.activeTab.set(1);
+        this.scheduleDateInputBinding();
     }
 
     resetForm(): void {
         this.editingScheduleId.set(null);
         this.form.reset({
+            target_type: 'instance',
             instance: null,
             instance_id: '',
+            group: null,
+            group_id: '',
             type: 'one_time',
             action: 'start',
             run_at_utc: null,
@@ -431,13 +575,31 @@ export class SchedulesPage implements OnInit, OnDestroy {
             time_utc: null,
             enabled: true
         });
+        this.runTimeInput.set('');
+        this.recurringTimeInput.set('');
         this.instanceSuggestions.set(this.instances());
+        this.groupSuggestions.set(this.groups());
+        this.createTargetTab.set(0);
         this.activeTab.set(0);
+        this.scheduleDateInputBinding();
     }
 
     setActiveTab(value: number | string | undefined): void {
         const nextValue = typeof value === 'number' ? value : Number(value ?? 0);
         this.activeTab.set(Number.isNaN(nextValue) ? 0 : nextValue);
+    }
+
+    setCreateTargetTab(value: number | string | undefined): void {
+        const nextValue = typeof value === 'number' ? value : Number(value ?? 0);
+        const normalized = nextValue === 1 ? 1 : 0;
+        this.createTargetTab.set(normalized);
+        this.form.controls.target_type.setValue(normalized === 1 ? 'group' : 'instance');
+        if (normalized === 1) {
+            this.form.patchValue({ instance: null, instance_id: '' });
+        } else {
+            this.form.patchValue({ group: null, group_id: '' });
+        }
+        this.scheduleDateInputBinding();
     }
 
     toggleSchedule(schedule: ScheduleModel): void {
@@ -461,7 +623,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
     private confirmDelete(schedule: ScheduleModel): void {
         this.clearFeedback();
         this.confirmationService.confirm({
-            message: `Deseja excluir o agendamento da instância ${schedule.instance_name || schedule.instance_id}?`,
+            message: `Deseja excluir o agendamento de ${this.scheduleDisplayName(schedule)}?`,
             header: 'Confirmar exclusão',
             icon: 'pi pi-exclamation-triangle',
             acceptLabel: 'Excluir',
@@ -492,7 +654,13 @@ export class SchedulesPage implements OnInit, OnDestroy {
     }
 
     private validateFormByType(): boolean {
-        if (!this.form.controls.instance_id.value) {
+        if (this.form.controls.target_type.value === 'group') {
+            if (!this.form.controls.group_id.value) {
+                this.feedbackSeverity.set('error');
+                this.feedback.set('Selecione um grupo cadastrado.');
+                return false;
+            }
+        } else if (!this.form.controls.instance_id.value) {
             this.feedbackSeverity.set('error');
             this.feedback.set('Selecione uma instância cadastrada.');
             return false;
@@ -535,6 +703,16 @@ export class SchedulesPage implements OnInit, OnDestroy {
         this.form.controls.instance.setValue(selectedInstance, { emitEvent: false });
     }
 
+    private syncSelectedGroupFromId(): void {
+        const selectedGroupId = this.form.controls.group_id.value;
+        if (!selectedGroupId) {
+            return;
+        }
+
+        const selectedGroup = this.groups().find((item) => item.id === selectedGroupId) ?? null;
+        this.form.controls.group.setValue(selectedGroup, { emitEvent: false });
+    }
+
     private clearFeedback(): void {
         this.feedback.set(null);
     }
@@ -556,14 +734,178 @@ export class SchedulesPage implements OnInit, OnDestroy {
         }, 1000);
     }
 
+    onRunTimeInputChange(value: string | null): void {
+        const normalized = value ?? '';
+        this.runTimeInput.set(normalized);
+        this.form.controls.run_time_utc.setValue(this.parseHourMinute(normalized), { emitEvent: false });
+    }
+
+    onRecurringTimeInputChange(value: string | null): void {
+        const normalized = value ?? '';
+        this.recurringTimeInput.set(normalized);
+        this.form.controls.time_utc.setValue(this.parseHourMinute(normalized), { emitEvent: false });
+    }
+
     private toUtcDateTimeIso(date: Date, time: Date): string {
         return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), time.getHours(), time.getMinutes(), 0, 0)).toISOString();
+    }
+
+    private scheduleDateInputBinding(): void {
+        window.setTimeout(() => this.bindDateInputMask(), 0);
+    }
+
+    private bindDateInputMask(): void {
+        this.dateInputCleanup?.();
+
+        const input = document.getElementById('schedule-run-at-input') as HTMLInputElement | null;
+        if (!input) {
+            this.dateInputCleanup = null;
+            return;
+        }
+
+        input.maxLength = 10;
+        input.placeholder = 'dd/mm/yyyy';
+        this.syncDateInputValue(this.form.controls.run_at_utc.value);
+
+        const handleInput = () => {
+            const formatted = this.formatDateInput(input.value);
+            if (input.value !== formatted) {
+                input.value = formatted;
+            }
+            this.form.controls.run_at_utc.setValue(formatted.length === 10 ? this.parseDateInput(formatted) : null, { emitEvent: false });
+        };
+
+        const handleBlur = () => {
+            const formatted = this.formatDateInput(input.value);
+            const parsed = this.parseDateInput(formatted);
+            input.value = parsed ? this.formatDateValue(parsed) : formatted;
+            this.form.controls.run_at_utc.setValue(parsed, { emitEvent: false });
+        };
+
+        input.addEventListener('input', handleInput);
+        input.addEventListener('blur', handleBlur);
+        this.dateInputCleanup = () => {
+            input.removeEventListener('input', handleInput);
+            input.removeEventListener('blur', handleBlur);
+        };
+    }
+
+    private syncDateInputValue(value: Date | null): void {
+        const input = document.getElementById('schedule-run-at-input') as HTMLInputElement | null;
+        if (!input) {
+            return;
+        }
+        input.value = value ? this.formatDateValue(value) : '';
+    }
+
+    private formatDateInput(value: string): string {
+        const digits = value.replace(/\D/g, '').slice(0, 8);
+        if (digits.length <= 2) {
+            return digits;
+        }
+        if (digits.length <= 4) {
+            return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+        }
+        return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+    }
+
+    private parseDateInput(value: string): Date | null {
+        const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+        if (!match) {
+            return null;
+        }
+
+        const day = Number(match[1]);
+        const month = Number(match[2]);
+        const year = Number(match[3]);
+        const parsed = new Date(year, month - 1, day);
+        if (
+            Number.isNaN(parsed.getTime()) ||
+            parsed.getFullYear() !== year ||
+            parsed.getMonth() !== month - 1 ||
+            parsed.getDate() !== day
+        ) {
+            return null;
+        }
+        return parsed;
+    }
+
+    private formatDateValue(value: Date): string {
+        const day = String(value.getDate()).padStart(2, '0');
+        const month = String(value.getMonth() + 1).padStart(2, '0');
+        const year = value.getFullYear();
+        return `${day}/${month}/${year}`;
+    }
+
+    private normalizeScheduleFormValue(raw: ScheduleFormValue): NormalizedScheduleFormValue {
+        return {
+            ...raw,
+            target_type: raw.target_type ?? 'instance',
+            type: raw.type ?? 'one_time',
+            action: raw.action ?? 'start',
+            days_of_week: raw.days_of_week ?? [],
+            enabled: raw.enabled ?? true
+        };
+    }
+
+    private buildCreatePayload(raw: NormalizedScheduleFormValue): Partial<ScheduleModel> {
+        const payload = this.buildCommonSchedulePayload(raw);
+        if (payload.target_type === 'group') {
+            return { ...payload, group_id: raw.group_id };
+        }
+        return { ...payload, instance_id: raw.instance_id };
+    }
+
+    private buildUpdatePayload(raw: NormalizedScheduleFormValue): Partial<ScheduleModel> {
+        const payload = this.buildCommonSchedulePayload(raw);
+        const currentSchedule = this.editingScheduleId() ? this.schedules().find((item) => item.id === this.editingScheduleId()) : null;
+        if (payload.target_type === 'group') {
+            return {
+                ...payload,
+                group_id: raw.group_id,
+                ...(currentSchedule?.target_type === 'instance' ? { instance_id: null } : {})
+            };
+        }
+        return {
+            ...payload,
+            instance_id: raw.instance_id,
+            ...(currentSchedule?.target_type === 'group' ? { group_id: null } : {})
+        };
+    }
+
+    private buildCommonSchedulePayload(raw: NormalizedScheduleFormValue): Partial<ScheduleModel> {
+        return {
+            target_type: raw.target_type,
+            type: raw.type ?? 'one_time',
+            action: raw.action ?? 'start',
+            enabled: raw.enabled ?? true,
+            run_at_utc: raw.type === 'one_time' && raw.run_at_utc && raw.run_time_utc ? this.toUtcDateTimeIso(raw.run_at_utc, raw.run_time_utc) : null,
+            days_of_week: raw.type === 'recurring' ? raw.days_of_week : null,
+            time_utc: raw.type === 'recurring' && raw.time_utc ? this.toHourMinute(raw.time_utc) : null
+        };
     }
 
     private toHourMinute(value: Date): string {
         const hours = String(value.getHours()).padStart(2, '0');
         const minutes = String(value.getMinutes()).padStart(2, '0');
         return `${hours}:${minutes}`;
+    }
+
+    private parseHourMinute(value: string): Date | null {
+        const match = /^(\d{2}):(\d{2})$/.exec(value);
+        if (!match) {
+            return null;
+        }
+
+        const hours = Number(match[1]);
+        const minutes = Number(match[2]);
+        if (hours > 23 || minutes > 59) {
+            return null;
+        }
+
+        const date = new Date();
+        date.setHours(hours, minutes, 0, 0);
+        return date;
     }
 
     private fromHourMinute(value: string): Date {

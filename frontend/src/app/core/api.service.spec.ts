@@ -88,6 +88,36 @@ describe('ApiService', () => {
         syncRequest.flush([]);
     });
 
+    it('uses the backend api prefix for automatic registration jobs', () => {
+        service.startImportAllCompartmentsInstancesJob().subscribe();
+        service.getImportAllCompartmentsInstancesJob('job-123').subscribe();
+
+        const startRequest = httpMock.expectOne('http://localhost:8000/api/compartiments/instancesall/jobs');
+        expect(startRequest.request.method).toBe('POST');
+        expect(startRequest.request.body).toEqual({});
+        startRequest.flush({
+            job_id: 'job-123',
+            status: 'pending',
+            started_at: '2026-04-05T18:00:00Z'
+        });
+
+        const statusRequest = httpMock.expectOne('http://localhost:8000/api/compartiments/instancesall/jobs/job-123');
+        expect(statusRequest.request.method).toBe('GET');
+        statusRequest.flush({
+            job_id: 'job-123',
+            status: 'running',
+            started_at: '2026-04-05T18:00:00Z',
+            total_compartments: 2,
+            processed_compartments: 1,
+            total_instances: 4,
+            processed_instances: 2,
+            created: 1,
+            updated: 1,
+            unchanged: 0,
+            failed: 0
+        });
+    });
+
     it('uses the backend api prefix for group endpoints', () => {
         service.listGroups().subscribe();
         service.getGroupTree().subscribe();

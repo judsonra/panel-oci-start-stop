@@ -12,6 +12,11 @@ class ScheduleType(str, Enum):
     recurring = "recurring"
 
 
+class ScheduleTargetType(str, Enum):
+    instance = "instance"
+    group = "group"
+
+
 class ScheduleAction(str, Enum):
     start = "start"
     stop = "stop"
@@ -21,7 +26,9 @@ class ScheduleAction(str, Enum):
 class Schedule(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "schedules"
 
-    instance_id: Mapped[str] = mapped_column(ForeignKey("instances.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_type: Mapped[ScheduleTargetType] = mapped_column(SqlEnum(ScheduleTargetType), nullable=False, default=ScheduleTargetType.instance)
+    instance_id: Mapped[str | None] = mapped_column(ForeignKey("instances.id", ondelete="CASCADE"), nullable=True, index=True)
+    group_id: Mapped[str | None] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), nullable=True, index=True)
     type: Mapped[ScheduleType] = mapped_column(SqlEnum(ScheduleType), nullable=False)
     action: Mapped[ScheduleAction] = mapped_column(SqlEnum(ScheduleAction), nullable=False)
     run_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -31,3 +38,4 @@ class Schedule(UUIDMixin, TimestampMixin, Base):
     last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     instance = relationship("Instance", back_populates="schedules")
+    group = relationship("Group", back_populates="schedules")

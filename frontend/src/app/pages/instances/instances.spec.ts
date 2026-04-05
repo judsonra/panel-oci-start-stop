@@ -49,7 +49,8 @@ describe('InstancesPage', () => {
             'startInstance',
             'stopInstance',
             'getInstanceStatus',
-            'importAllCompartmentsInstances'
+            'startImportAllCompartmentsInstancesJob',
+            'getImportAllCompartmentsInstancesJob'
         ]);
         apiService.listInstances.and.returnValue(of(listedInstances));
         apiService.getInstanceImportPreview.and.returnValue(of(importPreview));
@@ -106,27 +107,50 @@ describe('InstancesPage', () => {
                 started_at: '2026-03-12T00:00:00Z'
             })
         );
-        apiService.importAllCompartmentsInstances.and.returnValue(
+        apiService.startImportAllCompartmentsInstancesJob.and.returnValue(
             of({
+                job_id: 'job-1',
+                status: 'pending',
+                started_at: '2026-04-05T18:00:00Z'
+            })
+        );
+        apiService.getImportAllCompartmentsInstancesJob.and.returnValue(
+            of({
+                job_id: 'job-1',
+                status: 'completed',
+                started_at: '2026-04-05T18:00:00Z',
+                finished_at: '2026-04-05T18:01:00Z',
                 total_compartments: 2,
                 processed_compartments: 2,
                 total_instances: 3,
+                processed_instances: 3,
                 created: 1,
                 updated: 1,
                 unchanged: 1,
                 failed: 0,
-                compartments: [
-                    {
-                        compartment_ocid: 'ocid1.compartment.oc1..aaaa',
-                        compartment_name: 'Compartment A',
-                        total_instances: 2,
-                        created: 1,
-                        updated: 1,
-                        unchanged: 0,
-                        failed: 0,
-                        instances: []
-                    }
-                ]
+                current_compartment_name: null,
+                current_instance_name: null,
+                result: {
+                    total_compartments: 2,
+                    processed_compartments: 2,
+                    total_instances: 3,
+                    created: 1,
+                    updated: 1,
+                    unchanged: 1,
+                    failed: 0,
+                    compartments: [
+                        {
+                            compartment_ocid: 'ocid1.compartment.oc1..aaaa',
+                            compartment_name: 'Compartment A',
+                            total_instances: 2,
+                            created: 1,
+                            updated: 1,
+                            unchanged: 0,
+                            failed: 0,
+                            instances: []
+                        }
+                    ]
+                }
             })
         );
 
@@ -374,16 +398,54 @@ describe('InstancesPage', () => {
         expect(component.actionFeedback()).toBe('Não há instâncias habilitadas para consultar o status.');
     });
 
-    it('runs automatic registration and stores the summary result', () => {
+    it('runs automatic registration as a job and stores the summary result', () => {
         component.openAutomaticRegistrationConfirmation();
         component.autoRegisterConfirmationText.set('Estou ciente');
 
         component.confirmAutomaticRegistration();
 
-        expect(apiService.importAllCompartmentsInstances).toHaveBeenCalled();
+        expect(apiService.startImportAllCompartmentsInstancesJob).toHaveBeenCalled();
+        expect(apiService.getImportAllCompartmentsInstancesJob).toHaveBeenCalledWith('job-1');
         expect(component.autoRegisterProgressVisible()).toBeTrue();
         expect(component.autoRegisterCompleted()).toBeTrue();
         expect(component.autoRegisterResult()?.created).toBe(1);
+    });
+
+    it('shows the new confirmation warning before starting automatic registration', () => {
+        component.openAutomaticRegistrationConfirmation();
+        fixture.detectChanges();
+
+        expect(fixture.nativeElement.textContent).toContain('Esta ação não pode ser cancelada, é demorada, e pode gerar lentidão. Deseja prosseguir.');
+    });
+
+    it('updates progress details while the automatic registration job is running', () => {
+        apiService.getImportAllCompartmentsInstancesJob.and.returnValue(
+            of({
+                job_id: 'job-1',
+                status: 'running',
+                started_at: '2026-04-05T18:00:00Z',
+                total_compartments: 2,
+                processed_compartments: 1,
+                total_instances: 4,
+                processed_instances: 2,
+                created: 1,
+                updated: 0,
+                unchanged: 1,
+                failed: 0,
+                current_compartment_name: 'Compartment A',
+                current_instance_name: 'Instance A1'
+            })
+        );
+        component.openAutomaticRegistrationConfirmation();
+        component.autoRegisterConfirmationText.set('Estou ciente');
+
+        component.confirmAutomaticRegistration();
+
+        expect(component.autoRegisterCompleted()).toBeFalse();
+        expect(component.autoRegisterCurrentCompartmentName()).toBe('Compartment A');
+        expect(component.autoRegisterCurrentInstanceName()).toBe('Instance A1');
+        expect(component.autoRegisterProgressPercent()).toBe(50);
+        expect(component.autoRegisterProgressMessage()).toContain('2 / 4');
     });
 
     it('refreshes the status of a single row and updates the status column locally', () => {

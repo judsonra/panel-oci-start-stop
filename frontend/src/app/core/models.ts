@@ -41,8 +41,11 @@ export interface CompartmentModel {
 
 export interface ScheduleModel {
     id: string;
-    instance_id: string;
+    target_type: 'instance' | 'group';
+    instance_id?: string | null;
     instance_name?: string | null;
+    group_id?: string | null;
+    group_name?: string | null;
     type: 'one_time' | 'recurring';
     action: 'start' | 'stop' | 'restart';
     run_at_utc?: string | null;
@@ -160,6 +163,31 @@ export interface ImportAllCompartmentsModel {
     unchanged: number;
     failed: number;
     compartments: ImportedCompartmentModel[];
+}
+
+export interface ImportAllCompartmentsJobCreateModel {
+    job_id: string;
+    status: string;
+    started_at: string;
+}
+
+export interface ImportAllCompartmentsJobStatusModel {
+    job_id: string;
+    status: string;
+    started_at: string;
+    finished_at?: string | null;
+    total_compartments: number;
+    processed_compartments: number;
+    total_instances: number;
+    processed_instances: number;
+    created: number;
+    updated: number;
+    unchanged: number;
+    failed: number;
+    current_compartment_name?: string | null;
+    current_instance_name?: string | null;
+    result?: ImportAllCompartmentsModel | null;
+    error?: string | null;
 }
 
 export interface GroupInstanceModel {

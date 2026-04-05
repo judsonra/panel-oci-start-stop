@@ -14,7 +14,7 @@ class ScheduleRepository:
         self.session = session
 
     def list(self) -> list[Schedule]:
-        statement = select(Schedule).options(joinedload(Schedule.instance)).order_by(Schedule.created_at.desc())
+        statement = select(Schedule).options(joinedload(Schedule.instance), joinedload(Schedule.group)).order_by(Schedule.created_at.desc())
         return list(self.session.scalars(statement).all())
 
     def get(self, schedule_id: str) -> Schedule | None:

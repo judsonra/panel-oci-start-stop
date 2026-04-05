@@ -1,20 +1,28 @@
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.execution_log import ExecutionSource
-from app.models.schedule import Schedule, ScheduleType
+from app.models.schedule import Schedule, ScheduleTargetType, ScheduleType
+from app.repositories.group_repository import GroupRepository
 from app.repositories.instance_repository import InstanceRepository
 from app.repositories.schedule_repository import ScheduleRepository
 from app.schemas.schedule import ScheduleCreate, ScheduleUpdate
+from app.db.session import SessionLocal
 from app.services.instance_service import InstanceService
+from app.services.oci_cli import OCIService
 
+logger = logging.getLogger(__name__)
 
 class ScheduleService:
     def __init__(self, session: Session, instance_service: InstanceService) -> None:
         self.session = session
         self.instances = InstanceRepository(session)
+        self.groups = GroupRepository(session)
         self.schedules = ScheduleRepository(session)
         self.instance_service = instance_service
 
@@ -28,14 +36,15 @@ class ScheduleService:
         return schedule
 
     def create_schedule(self, payload: ScheduleCreate) -> Schedule:
-        if self.instances.get(payload.instance_id) is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found")
+        self._validate_target(payload.target_type, payload.instance_id, payload.group_id)
         return self.schedules.create(payload)
 
     def update_schedule(self, schedule_id: str, payload: ScheduleUpdate) -> Schedule:
         schedule = self.get_schedule(schedule_id)
-        if payload.instance_id is not None and self.instances.get(payload.instance_id) is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found")
+        next_target_type = payload.target_type or schedule.target_type
+        next_instance_id = payload.instance_id if "instance_id" in payload.model_fields_set else schedule.instance_id
+        next_group_id = payload.group_id if "group_id" in payload.model_fields_set else schedule.group_id
+        self._validate_target(next_target_type, next_instance_id, next_group_id)
         return self.schedules.update(schedule, payload)
 
     def delete_schedule(self, schedule_id: str) -> None:
@@ -76,16 +85,76 @@ class ScheduleService:
         return True
 
     def trigger(self, schedule: Schedule, now: datetime) -> None:
-        instance = self.instances.get(schedule.instance_id)
-        if instance is None or not instance.enabled:
-            return
-        if schedule.action.value == "start":
-            self.instance_service.start(instance.id, source=ExecutionSource.schedule)
-        elif schedule.action.value == "stop":
-            self.instance_service.stop(instance.id, source=ExecutionSource.schedule)
+        if schedule.target_type == ScheduleTargetType.instance:
+            instance = self.instances.get(schedule.instance_id) if schedule.instance_id else None
+            if instance is None or not instance.enabled:
+                return
+            self._trigger_instance(schedule.action.value, instance.id, ExecutionSource.schedule)
         else:
-            self.instance_service.restart(instance.id, source=ExecutionSource.schedule)
+            self._trigger_group(schedule)
         self.schedules.mark_triggered(schedule, now)
+
+    def _validate_target(self, target_type: ScheduleTargetType, instance_id: str | None, group_id: str | None) -> None:
+        if target_type == ScheduleTargetType.instance:
+            if group_id is not None:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="group_id is not allowed for instance schedules")
+            if not instance_id or self.instances.get(instance_id) is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found")
+            return
+
+        if instance_id is not None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="instance_id is not allowed for group schedules")
+        if not group_id or self.groups.get(group_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+
+    def _trigger_group(self, schedule: Schedule) -> None:
+        if schedule.group_id is None:
+            return
+        group = self.groups.get(schedule.group_id)
+        if group is None:
+            return
+        instance_ids = [instance.id for instance in group.instances if instance.enabled]
+        if not instance_ids:
+            return
+
+        if not isinstance(self.instance_service, InstanceService):
+            for instance_id in instance_ids:
+                self._trigger_instance(schedule.action.value, instance_id, ExecutionSource.schedule)
+            return
+
+        max_concurrency = max(1, get_settings().schedule_group_max_concurrency)
+        if max_concurrency == 1 or len(instance_ids) == 1:
+            for instance_id in instance_ids:
+                self._trigger_instance(schedule.action.value, instance_id, ExecutionSource.schedule)
+            return
+
+        worker_count = min(max_concurrency, len(instance_ids))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [executor.submit(self._trigger_instance_in_worker, schedule.action.value, instance_id) for instance_id in instance_ids]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception:
+                    logger.exception("Group schedule member execution failed [schedule_id=%s group_id=%s]", schedule.id, schedule.group_id)
+
+    def _trigger_instance(self, action: str, instance_id: str, source: ExecutionSource) -> None:
+        if action == "start":
+            self.instance_service.start(instance_id, source=source)
+        elif action == "stop":
+            self.instance_service.stop(instance_id, source=source)
+        else:
+            self.instance_service.restart(instance_id, source=source)
+
+    @staticmethod
+    def _trigger_instance_in_worker(action: str, instance_id: str) -> None:
+        with SessionLocal() as session:
+            instance_service = InstanceService(session, OCIService())
+            if action == "start":
+                instance_service.start(instance_id, source=ExecutionSource.schedule)
+            elif action == "stop":
+                instance_service.stop(instance_id, source=ExecutionSource.schedule)
+            else:
+                instance_service.restart(instance_id, source=ExecutionSource.schedule)
 
     @staticmethod
     def _ensure_utc(value: datetime | None) -> datetime | None:

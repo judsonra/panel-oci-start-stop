@@ -8,6 +8,75 @@
 
 Full-stack application for registering, operating, scheduling, and reporting OCI workloads and costs.
 
+## Recent Changes (Last 7 Days)
+
+Coverage window: March 31, 2026 to April 5, 2026.
+
+- Compartments and OCI synchronization:
+  - compartment listing and `listandupdate` synchronization were added to the operational backend and exposed in the sidebar.
+- Automatic instance registration:
+  - the bulk import flow for all active compartments was introduced;
+  - the current local codebase already includes an asynchronous job + polling flow for `Automatic Registration`, with progress details in the UI.
+- Instances screen improvements:
+  - local search by name, OCID and IPs;
+  - OCI import preview before saving;
+  - instance editing in the registration screen;
+  - VNIC and IP enrichment during OCI import.
+- Scheduling:
+  - one-time schedule support was added to the schedules screen.
+- Groups:
+  - group CRUD, group tree and instance-to-group relationships were added.
+- Cost/Compartment report:
+  - the screen was redesigned with period picker, tabs, advanced composition table, CSV export and richer cost composition details from the `reports` microservice.
+
+## API Updates
+
+### Backend API (`http://localhost:8000/api`)
+
+- Health:
+  - `GET /health`
+- Compartments:
+  - `GET /compartiments/list`
+  - `GET /compartiments/listandupdate`
+  - `GET /compartiments/instancesall`
+  - `POST /compartiments/instancesall/jobs`
+  - `GET /compartiments/instancesall/jobs/{job_id}`
+  - `GET /compartiments/instances/{instance_ocid}/vnic`
+  - `GET /compartiments/vnics/{vnic_id}`
+- Groups:
+  - `GET /groups`
+  - `GET /groups/tree`
+  - `GET /groups/{group_id}`
+  - `POST /groups`
+  - `PUT /groups/{group_id}`
+  - `DELETE /groups/{group_id}`
+- Instances:
+  - `GET /instances`
+  - `POST /instances`
+  - `GET /instances/import-preview/{instance_ocid}`
+  - `POST /instances/import`
+  - `PUT /instances/{instance_id}`
+  - `DELETE /instances/{instance_id}`
+  - `POST /instances/{instance_id}/start`
+  - `POST /instances/{instance_id}/stop`
+  - `GET /instances/{instance_id}/status`
+- Schedules:
+  - `GET /schedules`
+  - `POST /schedules`
+  - `PUT /schedules/{schedule_id}`
+  - `DELETE /schedules/{schedule_id}`
+- Executions:
+  - `GET /executions`
+
+### Reports API (`http://localhost:8010`)
+
+- Health:
+  - `GET /health`
+- Cost by compartment:
+  - `GET /api/reports/cost-by-compartment?year=YYYY&month=MM`
+  - `GET /api/reports/cost-by-compartment.csv?year=YYYY&month=MM`
+  - `POST /api/reports/cost-by-compartment/refresh`
+
 ## Stack
 
 - Angular + PrimeNG frontend in an administrative layout inspired by Sakai
@@ -140,6 +209,20 @@ Main architecture:
 - `src/assets/styles.scss`: visual identity and shell/layout adjustments
 - `public/app-config.js`: runtime API endpoint configuration
 
+Recent frontend improvements:
+
+- Instances:
+  - local search on the registered instances table;
+  - OCI preview before manual import;
+  - edit support in the registration flow;
+  - automatic registration progress modal with polling support in the current local codebase.
+- Reports:
+  - `Cost/Compartment` now uses the `reports` microservice only;
+  - month picker input for the reporting period;
+  - tabs for monthly totals, daily costs and detailed cost composition;
+  - advanced cost composition table with filters and column toggle;
+  - richer daily cost composition visualization.
+
 ### Cost/Compartment Screen
 
 The `Dashboard > Cost/Compartment` screen:
@@ -151,19 +234,41 @@ The `Dashboard > Cost/Compartment` screen:
 - shows the monthly total and the compartment totals
 - offers CSV export for the selected period
 
-## Configuration
+## Environment Variables
 
-Relevant environment variables:
+The application reads environment variables from `.env` and from `docker-compose.yml`. The table below documents every variable currently used by the containers and runtime frontend configuration.
 
-- `DATABASE_URL`
-- `REPORTS_DATABASE_URL`
-- `OCI_CLI_PATH`
-- `OCI_CLI_PROFILE`
-- `OCI_CONFIG_DIR`
-- `REPORTS_OCI_TENANT_ID`
-- `SUPPRESS_OCI_LABEL_WARNING`
-- `API_BASE_URL`
-- `REPORTS_API_BASE_URL`
+| Variable | Service(s) | Required | Default | Purpose |
+| --- | --- | --- | --- | --- |
+| `POSTGRES_DB` | `postgres` | No | `oci_automation` | Creates the initial PostgreSQL database name used by Docker Compose. |
+| `POSTGRES_USER` | `postgres` | No | `oci_user` | Creates the PostgreSQL user for the local containerized database. |
+| `POSTGRES_PASSWORD` | `postgres` | No | `oci_password` | Sets the PostgreSQL password for the local containerized database. |
+| `POSTGRES_PORT` | `postgres` | No | `5432` | Publishes the PostgreSQL container port to the host machine. |
+| `DATABASE_URL` | `backend` | Yes | `postgresql+psycopg://oci_user:oci_password@postgres:5432/oci_automation` | Main SQLAlchemy connection string for the operational backend. |
+| `REPORTS_DATABASE_URL` | Compose -> `reports` | Yes | `postgresql+psycopg://oci_user:oci_password@postgres:5432/oci_automation` | External variable that feeds `DATABASE_URL` inside the `reports` container. |
+| `OCI_CLI_PATH` | `backend`, `reports` | No | `oci` | Overrides the OCI CLI executable name or full path used inside the containers. |
+| `OCI_CLI_PROFILE` | `backend`, `reports` | No | `DEFAULT` | Selects the OCI CLI profile used for operational commands and report collection. |
+| `OCI_CONFIG_DIR` | `backend`, `reports` | Yes | `/home/appuser/.oci` | Directory mounted into the containers that contains `config` and the OCI key material. |
+| `REPORTS_OCI_TENANT_ID` | Compose -> `reports` | No | empty | External variable that feeds `OCI_TENANT_ID` inside the `reports` container when tenancy must be forced explicitly. |
+| `SUPPRESS_OCI_LABEL_WARNING` | `reports` | No | `true` | Controls whether the reports service suppresses OCI label warnings while normalizing report output. |
+| `AUTH_ENABLED` | `backend` | No | `false` | Enables or disables JWT/OIDC authentication enforcement in the operational backend. |
+| `OIDC_ISSUER` | `backend` | No | empty | Configures the expected OIDC issuer when authentication is enabled. |
+| `OIDC_AUDIENCE` | `backend` | No | empty | Configures the expected token audience when authentication is enabled. |
+| `OIDC_JWKS_URL` | `backend` | No | empty | Provides the JWKS endpoint used to validate incoming JWT signatures. |
+| `ALLOWED_GROUPS` | `backend` | No | empty | Comma-separated list of identity groups allowed to use the operational backend. |
+| `APP_TIMEZONE` | `backend` | No | `UTC` | Defines the application timezone used by scheduling and time-based backend behavior. |
+| `SCHEDULER_POLL_SECONDS` | `backend` | No | `30` | Controls how often the schedule runner checks for due jobs. |
+| `SCHEDULER_ENABLED` | `backend` | No | `true` | Enables or disables the backend scheduler loop at startup. |
+| `SCHEDULE_GROUP_MAX_CONCURRENCY` | `backend` | No | `3` | Limits how many instance actions from the same scheduled group can run in parallel during scheduler execution. |
+| `CORS_ORIGINS` | `backend`, `reports` | No | `http://localhost:4200,http://127.0.0.1:4200` | Comma-separated list of allowed browser origins for both APIs. |
+| `API_BASE_URL` | `frontend` | No | `http://localhost:8000/api` | Runtime frontend endpoint for the operational backend; injected into `public/app-config.js`. |
+| `REPORTS_API_BASE_URL` | `frontend` | No | `http://localhost:8010/api` | Runtime frontend endpoint for the `reports` microservice; injected into `public/app-config.js`. |
+
+Important mappings:
+
+- `REPORTS_DATABASE_URL` is a Compose-level variable that becomes `DATABASE_URL` inside the `reports` container.
+- `REPORTS_OCI_TENANT_ID` is a Compose-level variable that becomes `OCI_TENANT_ID` inside the `reports` container.
+- `API_BASE_URL` and `REPORTS_API_BASE_URL` are written at container startup into `frontend/public/app-config.js`, then consumed by `ApiService` in the browser.
 
 ## Frontend Development
 

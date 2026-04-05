@@ -1,3 +1,5 @@
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -12,6 +14,8 @@ from app.repositories.execution_repository import ExecutionRepository
 from app.repositories.instance_repository import InstanceRepository
 from app.schemas.instance import InstanceCreate, InstanceUpdate
 from app.services.oci_cli import OCIVnicDetails, OCIService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,6 +54,20 @@ class ImportAllCompartmentsResult:
     unchanged: int
     failed: int
     compartments: list[ImportCompartmentResult]
+
+
+@dataclass
+class ImportProgressSnapshot:
+    total_compartments: int
+    processed_compartments: int
+    total_instances: int
+    processed_instances: int
+    created: int
+    updated: int
+    unchanged: int
+    failed: int
+    current_compartment_name: str | None
+    current_instance_name: str | None
 
 
 @dataclass
@@ -191,27 +209,232 @@ class InstanceService:
     def get_vnic_details(self, vnic_id: str) -> OCIVnicDetails:
         return self.oci_service.get_vnic_details(vnic_id)
 
-    def import_all_compartment_instances(self) -> ImportAllCompartmentsResult:
+    def import_all_compartment_instances(
+        self,
+        progress_callback: Callable[[ImportProgressSnapshot], None] | None = None,
+        job_id: str | None = None,
+    ) -> ImportAllCompartmentsResult:
         compartments = [item for item in self.compartments.list() if item.active]
         results: list[ImportCompartmentResult] = []
+        processed_compartments = 0
+        processed_instances = 0
         created = 0
         updated = 0
         unchanged = 0
         failed = 0
         total_instances = 0
+        current_compartment_name: str | None = None
+        current_instance_name: str | None = None
+
+        def emit_progress() -> None:
+            if progress_callback is None:
+                return
+            progress_callback(
+                ImportProgressSnapshot(
+                    total_compartments=len(compartments),
+                    processed_compartments=processed_compartments,
+                    total_instances=total_instances,
+                    processed_instances=processed_instances,
+                    created=created,
+                    updated=updated,
+                    unchanged=unchanged,
+                    failed=failed,
+                    current_compartment_name=current_compartment_name,
+                    current_instance_name=current_instance_name,
+                )
+            )
+
+        logger.info(
+            "Automatic registration job started [job_id=%s total_compartments=%s]",
+            job_id or "sync",
+            len(compartments),
+        )
+        emit_progress()
 
         for compartment in compartments:
-            compartment_result = self._import_compartment_instances(compartment)
-            results.append(compartment_result)
-            total_instances += compartment_result.total_instances
-            created += compartment_result.created
-            updated += compartment_result.updated
-            unchanged += compartment_result.unchanged
-            failed += compartment_result.failed
+            current_compartment_name = compartment.name
+            current_instance_name = None
+            logger.info(
+                "Automatic registration job processing compartment [job_id=%s compartment_ocid=%s compartment_name=%s]",
+                job_id or "sync",
+                compartment.ocid,
+                compartment.name,
+            )
 
-        return ImportAllCompartmentsResult(
+            try:
+                oci_instances = self.oci_service.list_instances_by_compartment(compartment.ocid)
+                total_instances += len(oci_instances)
+                logger.info(
+                    "Automatic registration job listed compartment instances [job_id=%s compartment_ocid=%s compartment_name=%s total_instances=%s]",
+                    job_id or "sync",
+                    compartment.ocid,
+                    compartment.name,
+                    len(oci_instances),
+                )
+                emit_progress()
+            except RuntimeError as exc:
+                failed += 1
+                processed_compartments += 1
+                logger.info(
+                    "Automatic registration job failed to list compartment instances [job_id=%s compartment_ocid=%s compartment_name=%s error=%s]",
+                    job_id or "sync",
+                    compartment.ocid,
+                    compartment.name,
+                    str(exc),
+                )
+                results.append(
+                    ImportCompartmentResult(
+                        compartment_ocid=compartment.ocid,
+                        compartment_name=compartment.name,
+                        total_instances=0,
+                        created=0,
+                        updated=0,
+                        unchanged=0,
+                        failed=1,
+                        instances=[
+                            ImportInstanceResult(
+                                ocid="",
+                                name=compartment.name,
+                                status="failed",
+                                message=str(exc),
+                                vcpu=None,
+                                memory_gbs=None,
+                                vnic_id=None,
+                                public_ip=None,
+                                private_ip=None,
+                                oci_created_at=None,
+                            )
+                        ],
+                    )
+                )
+                emit_progress()
+                continue
+
+            compartment_results: list[ImportInstanceResult] = []
+            compartment_created = 0
+            compartment_updated = 0
+            compartment_unchanged = 0
+            compartment_failed = 0
+
+            for remote in oci_instances:
+                current_instance_name = remote.name
+                logger.info(
+                    "Automatic registration job processing instance [job_id=%s compartment_ocid=%s compartment_name=%s instance_ocid=%s instance_name=%s]",
+                    job_id or "sync",
+                    compartment.ocid,
+                    compartment.name,
+                    remote.ocid,
+                    remote.name,
+                )
+                try:
+                    vnic_id = self.oci_service.get_instance_vnic_id(remote.ocid)
+                    vnic_details = self.oci_service.get_vnic_details(vnic_id) if vnic_id else OCIVnicDetails(vnic_id="", public_ip=None, private_ip=None)
+                    status_name = self._upsert_imported_instance(
+                        compartment.id,
+                        remote.name,
+                        remote.ocid,
+                        remote.vcpu,
+                        remote.memory_gbs,
+                        vnic_id,
+                        vnic_details.public_ip,
+                        vnic_details.private_ip,
+                        remote.oci_created_at,
+                    )
+                    if status_name == "created":
+                        created += 1
+                        compartment_created += 1
+                    elif status_name == "updated":
+                        updated += 1
+                        compartment_updated += 1
+                    else:
+                        unchanged += 1
+                        compartment_unchanged += 1
+                    logger.info(
+                        "Automatic registration job processed instance [job_id=%s compartment_ocid=%s compartment_name=%s instance_ocid=%s instance_name=%s status=%s created=%s updated=%s unchanged=%s failed=%s]",
+                        job_id or "sync",
+                        compartment.ocid,
+                        compartment.name,
+                        remote.ocid,
+                        remote.name,
+                        status_name,
+                        created,
+                        updated,
+                        unchanged,
+                        failed,
+                    )
+                    compartment_results.append(
+                        ImportInstanceResult(
+                            ocid=remote.ocid,
+                            name=remote.name,
+                            status=status_name,
+                            message=None,
+                            vcpu=remote.vcpu,
+                            memory_gbs=remote.memory_gbs,
+                            vnic_id=vnic_id,
+                            public_ip=vnic_details.public_ip,
+                            private_ip=vnic_details.private_ip,
+                            oci_created_at=remote.oci_created_at,
+                        )
+                    )
+                except RuntimeError as exc:
+                    failed += 1
+                    compartment_failed += 1
+                    logger.info(
+                        "Automatic registration job failed instance [job_id=%s compartment_ocid=%s compartment_name=%s instance_ocid=%s instance_name=%s error=%s]",
+                        job_id or "sync",
+                        compartment.ocid,
+                        compartment.name,
+                        remote.ocid,
+                        remote.name,
+                        str(exc),
+                    )
+                    compartment_results.append(
+                        ImportInstanceResult(
+                            ocid=remote.ocid,
+                            name=remote.name,
+                            status="failed",
+                            message=str(exc),
+                            vcpu=remote.vcpu,
+                            memory_gbs=remote.memory_gbs,
+                            vnic_id=None,
+                            public_ip=None,
+                            private_ip=None,
+                            oci_created_at=remote.oci_created_at,
+                        )
+                    )
+                finally:
+                    processed_instances += 1
+                    emit_progress()
+
+            current_instance_name = None
+            processed_compartments += 1
+            compartment_result = ImportCompartmentResult(
+                compartment_ocid=compartment.ocid,
+                compartment_name=compartment.name,
+                total_instances=len(oci_instances),
+                created=compartment_created,
+                updated=compartment_updated,
+                unchanged=compartment_unchanged,
+                failed=compartment_failed,
+                instances=compartment_results,
+            )
+            results.append(compartment_result)
+            logger.info(
+                "Automatic registration job finished compartment [job_id=%s compartment_ocid=%s compartment_name=%s total_instances=%s created=%s updated=%s unchanged=%s failed=%s]",
+                job_id or "sync",
+                compartment.ocid,
+                compartment.name,
+                compartment_result.total_instances,
+                compartment_result.created,
+                compartment_result.updated,
+                compartment_result.unchanged,
+                compartment_result.failed,
+            )
+            emit_progress()
+
+        result = ImportAllCompartmentsResult(
             total_compartments=len(compartments),
-            processed_compartments=len(results),
+            processed_compartments=processed_compartments,
             total_instances=total_instances,
             created=created,
             updated=updated,
@@ -219,102 +442,19 @@ class InstanceService:
             failed=failed,
             compartments=results,
         )
-
-    def _import_compartment_instances(self, compartment: Compartment) -> ImportCompartmentResult:
-        try:
-            oci_instances = self.oci_service.list_instances_by_compartment(compartment.ocid)
-        except RuntimeError as exc:
-            return ImportCompartmentResult(
-                compartment_ocid=compartment.ocid,
-                compartment_name=compartment.name,
-                total_instances=0,
-                created=0,
-                updated=0,
-                unchanged=0,
-                failed=1,
-                instances=[
-                    ImportInstanceResult(
-                        ocid="",
-                        name=compartment.name,
-                        status="failed",
-                        message=str(exc),
-                        vcpu=None,
-                        memory_gbs=None,
-                        vnic_id=None,
-                        public_ip=None,
-                        private_ip=None,
-                        oci_created_at=None,
-                    )
-                ],
-            )
-        results: list[ImportInstanceResult] = []
-        created = 0
-        updated = 0
-        unchanged = 0
-        failed = 0
-
-        for remote in oci_instances:
-            try:
-                vnic_id = self.oci_service.get_instance_vnic_id(remote.ocid)
-                vnic_details = self.oci_service.get_vnic_details(vnic_id) if vnic_id else OCIVnicDetails(vnic_id="", public_ip=None, private_ip=None)
-                status_name = self._upsert_imported_instance(
-                    compartment.id,
-                    remote.name,
-                    remote.ocid,
-                    remote.vcpu,
-                    remote.memory_gbs,
-                    vnic_id,
-                    vnic_details.public_ip,
-                    vnic_details.private_ip,
-                    remote.oci_created_at,
-                )
-                if status_name == "created":
-                    created += 1
-                elif status_name == "updated":
-                    updated += 1
-                else:
-                    unchanged += 1
-                results.append(
-                    ImportInstanceResult(
-                        ocid=remote.ocid,
-                        name=remote.name,
-                        status=status_name,
-                        message=None,
-                        vcpu=remote.vcpu,
-                        memory_gbs=remote.memory_gbs,
-                        vnic_id=vnic_id,
-                        public_ip=vnic_details.public_ip,
-                        private_ip=vnic_details.private_ip,
-                        oci_created_at=remote.oci_created_at,
-                    )
-                )
-            except RuntimeError as exc:
-                failed += 1
-                results.append(
-                    ImportInstanceResult(
-                        ocid=remote.ocid,
-                        name=remote.name,
-                        status="failed",
-                        message=str(exc),
-                        vcpu=remote.vcpu,
-                        memory_gbs=remote.memory_gbs,
-                        vnic_id=None,
-                        public_ip=None,
-                        private_ip=None,
-                        oci_created_at=remote.oci_created_at,
-                    )
-                )
-
-        return ImportCompartmentResult(
-            compartment_ocid=compartment.ocid,
-            compartment_name=compartment.name,
-            total_instances=len(oci_instances),
-            created=created,
-            updated=updated,
-            unchanged=unchanged,
-            failed=failed,
-            instances=results,
+        logger.info(
+            "Automatic registration job finished [job_id=%s processed_compartments=%s total_compartments=%s processed_instances=%s total_instances=%s created=%s updated=%s unchanged=%s failed=%s]",
+            job_id or "sync",
+            result.processed_compartments,
+            result.total_compartments,
+            processed_instances,
+            result.total_instances,
+            result.created,
+            result.updated,
+            result.unchanged,
+            result.failed,
         )
+        return result
 
     def _upsert_imported_instance(
         self,

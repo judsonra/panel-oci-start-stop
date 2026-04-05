@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
-import { finalize, firstValueFrom } from 'rxjs';
+import { Subscription, concat, finalize, firstValueFrom, of, switchMap, timer } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -14,7 +14,7 @@ import { TextareaModule } from 'primeng/textarea';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TooltipModule } from 'primeng/tooltip';
 import { ApiService } from '@/app/core/api.service';
-import { ApiErrorResponse, ImportAllCompartmentsModel, InstanceImportPreviewModel, InstanceModel } from '@/app/core/models';
+import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompartmentsModel, InstanceImportPreviewModel, InstanceModel } from '@/app/core/models';
 
 @Component({
     selector: 'app-instances-page',
@@ -106,7 +106,12 @@ import { ApiErrorResponse, ImportAllCompartmentsModel, InstanceImportPreviewMode
             (visibleChange)="handleAutoRegisterConfirmationVisibility($event)"
         >
             <div class="auto-register-dialog-copy">
-                <p>Esta ação pode demorar e gerar lentidão. Deseja prosseguir.</p>
+                <p>
+                    Esta ação <span class="auto-register-warning-emphasis">NÃO PODE</span> ser
+                    <span class="auto-register-warning-emphasis">CANCELADA</span>, é
+                    <span class="auto-register-warning-emphasis">DEMORADA</span>, e pode gerar
+                    <span class="auto-register-warning-emphasis">LENTIDÃO</span>. Deseja prosseguir.
+                </p>
                 <label>
                     <span>Digite <strong>Estou ciente</strong> para habilitar o botão Sim</span>
                     <input
@@ -139,8 +144,18 @@ import { ApiErrorResponse, ImportAllCompartmentsModel, InstanceImportPreviewMode
             <div class="refresh-progress-copy">
                 <strong>{{ autoRegisterProgressTitle() }}</strong>
                 <span>{{ autoRegisterProgressMessage() }}</span>
+                @if (autoRegisterCurrentCompartmentName()) {
+                    <small>Compartimento atual: {{ autoRegisterCurrentCompartmentName() }}</small>
+                }
+                @if (autoRegisterCurrentInstanceName()) {
+                    <small>Instância atual: {{ autoRegisterCurrentInstanceName() }}</small>
+                }
                 @if (autoRegisterLoading()) {
-                    <p-progressbar mode="indeterminate"></p-progressbar>
+                    @if (autoRegisterHasDeterminateProgress()) {
+                        <p-progressbar [value]="autoRegisterProgressPercent()"></p-progressbar>
+                    } @else {
+                        <p-progressbar mode="indeterminate"></p-progressbar>
+                    }
                 }
             </div>
 
@@ -415,9 +430,10 @@ import { ApiErrorResponse, ImportAllCompartmentsModel, InstanceImportPreviewMode
         </section>
     `
 })
-export class InstancesPage implements OnInit {
+export class InstancesPage implements OnInit, OnDestroy {
     private readonly api = inject(ApiService);
     private readonly formBuilder = inject(FormBuilder);
+    private autoRegisterPollingSubscription: Subscription | null = null;
 
     readonly instances = signal<InstanceModel[]>([]);
     readonly importPreview = signal<InstanceImportPreviewModel | null>(null);
@@ -444,6 +460,7 @@ export class InstancesPage implements OnInit {
     readonly autoRegisterProgressVisible = signal(false);
     readonly autoRegisterProgressMessage = signal('Preparando sincronização das instâncias...');
     readonly autoRegisterResult = signal<ImportAllCompartmentsModel | null>(null);
+    readonly autoRegisterJobStatus = signal<ImportAllCompartmentsJobStatusModel | null>(null);
     readonly autoRegisterCompleted = signal(false);
     readonly autoRegisterConfirmationText = signal('');
     readonly isInitialLoadPending = computed(() => this.loading() && this.instances().length === 0);
@@ -479,12 +496,26 @@ export class InstancesPage implements OnInit {
     });
     readonly autoRegisterCanConfirm = computed(() => this.autoRegisterConfirmationText().trim() === 'Estou ciente');
     readonly autoRegisterProgressTitle = computed(() => {
+        const job = this.autoRegisterJobStatus();
         const result = this.autoRegisterResult();
-        if (!result) {
-            return this.autoRegisterLoading() ? 'Consultando todos os compartimentos ativos...' : 'Sincronização pendente.';
+        if (job) {
+            return `Compartimentos processados: ${job.processed_compartments} / ${job.total_compartments}`;
         }
-        return `Compartimentos processados: ${result.processed_compartments} / ${result.total_compartments}`;
+        if (result) {
+            return `Compartimentos processados: ${result.processed_compartments} / ${result.total_compartments}`;
+        }
+        return this.autoRegisterLoading() ? 'Consultando todos os compartimentos ativos...' : 'Sincronização pendente.';
     });
+    readonly autoRegisterProgressPercent = computed(() => {
+        const job = this.autoRegisterJobStatus();
+        if (!job || job.total_instances <= 0) {
+            return 0;
+        }
+        return Math.round((job.processed_instances / job.total_instances) * 100);
+    });
+    readonly autoRegisterHasDeterminateProgress = computed(() => (this.autoRegisterJobStatus()?.total_instances ?? 0) > 0);
+    readonly autoRegisterCurrentCompartmentName = computed(() => this.autoRegisterJobStatus()?.current_compartment_name ?? null);
+    readonly autoRegisterCurrentInstanceName = computed(() => this.autoRegisterJobStatus()?.current_instance_name ?? null);
 
     readonly form = this.formBuilder.nonNullable.group({
         ocid: ['', [Validators.required, Validators.pattern(/^ocid1\.instance\..+/)]],
@@ -495,6 +526,10 @@ export class InstancesPage implements OnInit {
     ngOnInit(): void {
         this.form.controls.ocid.valueChanges.subscribe((value) => this.clearPreviewIfOcidChanged(value));
         this.loadInstances();
+    }
+
+    ngOnDestroy(): void {
+        this.stopAutomaticRegistrationPolling();
     }
 
     loadInstances(): void {
@@ -578,9 +613,11 @@ export class InstancesPage implements OnInit {
     }
 
     closeAutomaticRegistrationProgress(): void {
+        this.stopAutomaticRegistrationPolling();
         this.autoRegisterProgressVisible.set(false);
         this.autoRegisterCompleted.set(false);
         this.autoRegisterResult.set(null);
+        this.autoRegisterJobStatus.set(null);
         this.autoRegisterProgressMessage.set('Preparando sincronização das instâncias...');
     }
 
@@ -662,26 +699,18 @@ export class InstancesPage implements OnInit {
         this.autoRegisterProgressVisible.set(true);
         this.autoRegisterCompleted.set(false);
         this.autoRegisterResult.set(null);
-        this.autoRegisterProgressMessage.set('Consultando os compartimentos ativos e importando as instâncias...');
+        this.autoRegisterJobStatus.set(null);
+        this.autoRegisterProgressMessage.set('Iniciando o registro automático...');
 
         this.api
-            .importAllCompartmentsInstances()
-            .pipe(finalize(() => this.autoRegisterLoading.set(false)))
+            .startImportAllCompartmentsInstancesJob()
             .subscribe({
-                next: (result) => {
-                    this.autoRegisterResult.set(result);
-                    this.autoRegisterCompleted.set(true);
-                    this.autoRegisterProgressMessage.set('Sincronização concluída. Revise o resumo abaixo.');
-                    this.actionFeedbackSeverity.set(result.failed > 0 ? 'error' : 'success');
-                    this.actionFeedback.set(
-                        result.failed > 0
-                            ? `Registro automático concluído com ${result.created} criada(s), ${result.updated} atualizada(s), ${result.unchanged} sem alteração e ${result.failed} falha(s).`
-                            : `Registro automático concluído com ${result.created} criada(s), ${result.updated} atualizada(s) e ${result.unchanged} sem alteração.`
-                    );
-                    this.activeTab.set(0);
-                    this.loadInstances();
+                next: (job) => {
+                    this.autoRegisterProgressMessage.set('Consultando os compartimentos ativos e importando as instâncias...');
+                    this.startAutomaticRegistrationPolling(job.job_id);
                 },
                 error: (response: { error?: ApiErrorResponse }) => {
+                    this.autoRegisterLoading.set(false);
                     this.autoRegisterCompleted.set(true);
                     this.autoRegisterProgressMessage.set('A sincronização foi interrompida por erro.');
                     this.actionFeedbackSeverity.set('error');
@@ -756,6 +785,65 @@ export class InstancesPage implements OnInit {
 
     setActiveTab(value: string | number | undefined): void {
         this.activeTab.set(typeof value === 'number' ? value : Number(value ?? 0));
+    }
+
+    private startAutomaticRegistrationPolling(jobId: string): void {
+        this.stopAutomaticRegistrationPolling();
+        this.autoRegisterPollingSubscription = concat(of(0), timer(1500, 1500))
+            .pipe(switchMap(() => this.api.getImportAllCompartmentsInstancesJob(jobId)))
+            .subscribe({
+                next: (status) => this.handleAutomaticRegistrationStatus(status),
+                error: (response: { error?: ApiErrorResponse }) => {
+                    this.stopAutomaticRegistrationPolling();
+                    this.autoRegisterLoading.set(false);
+                    this.autoRegisterCompleted.set(true);
+                    this.autoRegisterProgressMessage.set('A sincronização foi interrompida por erro.');
+                    this.actionFeedbackSeverity.set('error');
+                    this.actionFeedback.set(response.error?.detail ?? 'Não foi possível acompanhar o registro automático.');
+                }
+            });
+    }
+
+    private stopAutomaticRegistrationPolling(): void {
+        this.autoRegisterPollingSubscription?.unsubscribe();
+        this.autoRegisterPollingSubscription = null;
+    }
+
+    private handleAutomaticRegistrationStatus(status: ImportAllCompartmentsJobStatusModel): void {
+        this.autoRegisterJobStatus.set(status);
+
+        if (status.status === 'completed' && status.result) {
+            this.stopAutomaticRegistrationPolling();
+            this.autoRegisterLoading.set(false);
+            this.autoRegisterResult.set(status.result);
+            this.autoRegisterCompleted.set(true);
+            this.autoRegisterProgressMessage.set('Sincronização concluída. Revise o resumo abaixo.');
+            this.actionFeedbackSeverity.set(status.result.failed > 0 ? 'error' : 'success');
+            this.actionFeedback.set(
+                status.result.failed > 0
+                    ? `Registro automático concluído com ${status.result.created} criada(s), ${status.result.updated} atualizada(s), ${status.result.unchanged} sem alteração e ${status.result.failed} falha(s).`
+                    : `Registro automático concluído com ${status.result.created} criada(s), ${status.result.updated} atualizada(s) e ${status.result.unchanged} sem alteração.`
+            );
+            this.activeTab.set(0);
+            this.loadInstances();
+            return;
+        }
+
+        if (status.status === 'failed') {
+            this.stopAutomaticRegistrationPolling();
+            this.autoRegisterLoading.set(false);
+            this.autoRegisterCompleted.set(true);
+            this.autoRegisterProgressMessage.set('A sincronização foi interrompida por erro.');
+            this.actionFeedbackSeverity.set('error');
+            this.actionFeedback.set(status.error ?? 'Não foi possível executar o registro automático.');
+            return;
+        }
+
+        this.autoRegisterProgressMessage.set(
+            status.total_instances > 0
+                ? `Instâncias processadas: ${status.processed_instances} / ${status.total_instances}`
+                : 'Consultando os compartimentos ativos e importando as instâncias...'
+        );
     }
 
     formatNumber(value?: number | null): string {

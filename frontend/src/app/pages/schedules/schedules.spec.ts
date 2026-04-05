@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
 import { ConfirmationService } from 'primeng/api';
 import { ApiService } from '@/app/core/api.service';
-import { InstanceModel, ScheduleModel } from '@/app/core/models';
+import { GroupModel, InstanceModel, ScheduleModel } from '@/app/core/models';
 import { SchedulesPage } from './schedules';
 
 describe('SchedulesPage', () => {
@@ -30,8 +30,23 @@ describe('SchedulesPage', () => {
         }
     ];
 
+    const groups: GroupModel[] = [
+        {
+            id: 'group-1',
+            name: 'Grupo Banco',
+            instance_count: 2,
+            instances: [
+                { id: 'instance-1', name: 'VM Principal', ocid: 'ocid1.instance.oc1..example' },
+                { id: 'instance-2', name: 'Banco UTC', ocid: 'ocid1.instance.oc1..database' }
+            ],
+            created_at: '2026-03-12T00:00:00Z',
+            updated_at: '2026-03-12T00:00:00Z'
+        }
+    ];
+
     const schedule: ScheduleModel = {
         id: 'schedule-1',
+        target_type: 'instance',
         instance_id: 'instance-1',
         instance_name: 'VM Principal',
         type: 'recurring',
@@ -42,9 +57,10 @@ describe('SchedulesPage', () => {
     };
 
     beforeEach(async () => {
-        apiService = jasmine.createSpyObj<ApiService>('ApiService', ['listSchedules', 'listInstances', 'createSchedule', 'updateSchedule', 'deleteSchedule']);
+        apiService = jasmine.createSpyObj<ApiService>('ApiService', ['listSchedules', 'listInstances', 'listGroups', 'createSchedule', 'updateSchedule', 'deleteSchedule']);
         apiService.listSchedules.and.returnValue(of([schedule]));
         apiService.listInstances.and.returnValue(of(instances));
+        apiService.listGroups.and.returnValue(of(groups));
         apiService.createSchedule.and.returnValue(of({ ...schedule, id: 'schedule-2', type: 'one_time', action: 'start', run_at_utc: '2026-03-15T13:45:00.000Z', days_of_week: null, time_utc: null }));
         apiService.updateSchedule.and.returnValue(of({ ...schedule, enabled: false }));
         apiService.deleteSchedule.and.returnValue(of(void 0));
@@ -74,6 +90,7 @@ describe('SchedulesPage', () => {
 
     it('loads instances and schedules on init', () => {
         expect(apiService.listInstances).toHaveBeenCalled();
+        expect(apiService.listGroups).toHaveBeenCalled();
         expect(apiService.listSchedules).toHaveBeenCalled();
         expect(component.schedules()[0].instance_name).toBe('VM Principal');
     });
@@ -105,11 +122,33 @@ describe('SchedulesPage', () => {
         expect(component.isOneTime()).toBeFalse();
     });
 
+    it('formats typed date digits as dd/mm/yyyy', () => {
+        expect(component['formatDateInput']('05042026')).toBe('05/04/2026');
+    });
+
+    it('accepts valid 24h time input and converts it to Date', () => {
+        component.onRunTimeInputChange('21:45');
+
+        expect(component.runTimeInput()).toBe('21:45');
+        expect(component.form.controls.run_time_utc.value?.getHours()).toBe(21);
+        expect(component.form.controls.run_time_utc.value?.getMinutes()).toBe(45);
+    });
+
+    it('rejects invalid 24h time input', () => {
+        component.onRecurringTimeInputChange('29:88');
+
+        expect(component.recurringTimeInput()).toBe('29:88');
+        expect(component.form.controls.time_utc.value).toBeNull();
+    });
+
     it('creates a one-time schedule with combined UTC date and time and returns to list tab', () => {
         component.activeTab.set(1);
         component.form.setValue({
+            target_type: 'instance',
             instance: instances[0],
             instance_id: 'instance-1',
+            group: null,
+            group_id: '',
             type: 'one_time',
             action: 'start',
             run_at_utc: new Date('2026-03-15T00:00:00Z'),
@@ -122,6 +161,7 @@ describe('SchedulesPage', () => {
         component.save();
 
         expect(apiService.createSchedule).toHaveBeenCalledWith({
+            target_type: 'instance',
             instance_id: 'instance-1',
             type: 'one_time',
             action: 'start',
@@ -138,8 +178,11 @@ describe('SchedulesPage', () => {
         time.setHours(21, 45, 0, 0);
 
         component.form.setValue({
+            target_type: 'instance',
             instance: instances[1],
             instance_id: 'instance-2',
+            group: null,
+            group_id: '',
             type: 'recurring',
             action: 'restart',
             run_at_utc: null,
@@ -152,6 +195,7 @@ describe('SchedulesPage', () => {
         component.save();
 
         expect(apiService.createSchedule).toHaveBeenCalledWith({
+            target_type: 'instance',
             instance_id: 'instance-2',
             type: 'recurring',
             action: 'restart',
@@ -173,9 +217,49 @@ describe('SchedulesPage', () => {
         expect(component.activeTab()).toBe(1);
     });
 
+    it('filters groups by name for autocomplete', () => {
+        component.filterGroups({ query: 'banco', originalEvent: new Event('input') });
+
+        expect(component.groupSuggestions().length).toBe(1);
+        expect(component.groupSuggestions()[0].name).toBe('Grupo Banco');
+    });
+
+    it('creates a group schedule with target_type group', () => {
+        component.activeTab.set(1);
+        component.setCreateTargetTab(1);
+        component.form.setValue({
+            target_type: 'group',
+            instance: null,
+            instance_id: '',
+            group: groups[0],
+            group_id: 'group-1',
+            type: 'recurring',
+            action: 'stop',
+            run_at_utc: null,
+            run_time_utc: null,
+            days_of_week: [0, 2],
+            time_utc: new Date('2026-03-15T21:30:00Z'),
+            enabled: true
+        });
+
+        component.save();
+
+        expect(apiService.createSchedule).toHaveBeenCalledWith({
+            target_type: 'group',
+            group_id: 'group-1',
+            type: 'recurring',
+            action: 'stop',
+            enabled: true,
+            run_at_utc: null,
+            days_of_week: [0, 2],
+            time_utc: '21:30'
+        });
+    });
+
     it('loads one-time schedule date and time into the form for editing', () => {
         const oneTimeSchedule: ScheduleModel = {
             id: 'schedule-2',
+            target_type: 'instance',
             instance_id: 'instance-1',
             instance_name: 'VM Principal',
             type: 'one_time',
@@ -210,7 +294,9 @@ describe('SchedulesPage', () => {
         component.save();
 
         expect(apiService.updateSchedule).toHaveBeenCalledWith('schedule-1', {
+            target_type: 'instance',
             instance_id: 'instance-1',
+            group_id: null,
             type: 'recurring',
             action: 'stop',
             enabled: false,
@@ -220,6 +306,30 @@ describe('SchedulesPage', () => {
         });
         expect(component.activeTab()).toBe(0);
         expect(component.schedules()[0].enabled).toBeFalse();
+    });
+
+    it('clears instance_id when editing and switching the target from instance to group', () => {
+        component.editSchedule(schedule);
+        component.setCreateTargetTab(1);
+        component.form.patchValue({
+            target_type: 'group',
+            group: groups[0],
+            group_id: 'group-1'
+        });
+
+        component.save();
+
+        expect(apiService.updateSchedule).toHaveBeenCalledWith('schedule-1', {
+            target_type: 'group',
+            group_id: 'group-1',
+            instance_id: null,
+            type: 'recurring',
+            action: 'restart',
+            enabled: true,
+            run_at_utc: null,
+            days_of_week: [0, 1, 2],
+            time_utc: '14:30'
+        });
     });
 
     it('returns to the schedules tab when cancelling an edit', () => {
@@ -272,6 +382,16 @@ describe('SchedulesPage', () => {
         expect(component.utcClockDisplay()).toMatch(/^\d{2}:\d{2}:\d{2}$/);
     });
 
+    it('renders ON/OFF status tags instead of a toggle switch', () => {
+        const host: HTMLElement = fixture.nativeElement;
+        const tag = host.querySelector('.schedule-status-cell .p-tag');
+        const statusCell = host.querySelector('.schedule-status-cell');
+
+        expect(tag).not.toBeNull();
+        expect(statusCell?.textContent).toContain('ON');
+        expect(host.querySelector('.schedule-status-switch')).toBeNull();
+    });
+
     it('renders the tabs and form labels in the template', () => {
         let text = fixture.nativeElement.textContent;
         expect(text).toContain('Agendamentos');
@@ -282,6 +402,7 @@ describe('SchedulesPage', () => {
         fixture.detectChanges();
         text = fixture.nativeElement.textContent;
         expect(text).toContain('Instância');
+        expect(text).toContain('Grupo de instância');
         expect(text).toContain('Data');
         expect(text).toContain('Hora');
         expect(text).toContain('Hora UTC');
@@ -294,8 +415,11 @@ describe('SchedulesPage', () => {
 
     it('shows validation feedback when recurring schedule is missing time', () => {
         component.form.setValue({
+            target_type: 'instance',
             instance: instances[0],
             instance_id: 'instance-1',
+            group: null,
+            group_id: '',
             type: 'recurring',
             action: 'start',
             run_at_utc: null,
@@ -313,8 +437,11 @@ describe('SchedulesPage', () => {
 
     it('shows validation feedback when one-time schedule is missing time', () => {
         component.form.setValue({
+            target_type: 'instance',
             instance: instances[0],
             instance_id: 'instance-1',
+            group: null,
+            group_id: '',
             type: 'one_time',
             action: 'start',
             run_at_utc: new Date('2026-03-15T00:00:00Z'),
@@ -333,8 +460,11 @@ describe('SchedulesPage', () => {
     it('surfaces save errors from the api', () => {
         apiService.createSchedule.and.returnValue(throwError(() => ({ error: { detail: 'Erro ao salvar' } })));
         component.form.setValue({
+            target_type: 'instance',
             instance: instances[0],
             instance_id: 'instance-1',
+            group: null,
+            group_id: '',
             type: 'one_time',
             action: 'start',
             run_at_utc: new Date('2026-03-15T13:00:00'),
@@ -351,8 +481,11 @@ describe('SchedulesPage', () => {
 
     it('shows validation feedback when no instance is selected', () => {
         component.form.setValue({
+            target_type: 'instance',
             instance: null,
             instance_id: '',
+            group: null,
+            group_id: '',
             type: 'one_time',
             action: 'start',
             run_at_utc: new Date('2026-03-15T13:00:00'),
@@ -366,5 +499,27 @@ describe('SchedulesPage', () => {
 
         expect(component.feedback()).toBe('Selecione uma instância cadastrada.');
         expect(apiService.createSchedule).not.toHaveBeenCalled();
+    });
+
+    it('shows validation feedback when group schedule is missing group selection', () => {
+        component.setCreateTargetTab(1);
+        component.form.setValue({
+            target_type: 'group',
+            instance: null,
+            instance_id: '',
+            group: null,
+            group_id: '',
+            type: 'one_time',
+            action: 'start',
+            run_at_utc: new Date('2026-03-15T00:00:00Z'),
+            run_time_utc: new Date('2026-03-15T13:45:00Z'),
+            days_of_week: [],
+            time_utc: null,
+            enabled: true
+        });
+
+        component.save();
+
+        expect(component.feedback()).toBe('Selecione um grupo cadastrado.');
     });
 });

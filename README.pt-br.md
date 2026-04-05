@@ -8,6 +8,75 @@
 
 Aplicação full stack para cadastro, acionamento, agendamento e geração de relatórios operacionais e de custo na OCI.
 
+## Mudanças recentes (últimos 7 dias)
+
+Janela de cobertura: 31 de março de 2026 a 5 de abril de 2026.
+
+- Compartimentos e sincronização com OCI:
+  - listagem de compartimentos e sincronização via `listandupdate` foram adicionadas ao backend operacional e expostas no menu lateral.
+- Registro automático de instâncias:
+  - o fluxo de importação em lote de todos os compartimentos ativos foi introduzido;
+  - o código local atual já inclui um fluxo assíncrono com job + polling para `Registro Automático`, com detalhes de progresso na UI.
+- Melhorias na tela de instâncias:
+  - busca local por nome, OCID e IPs;
+  - preview OCI antes de salvar;
+  - edição de instâncias na tela de cadastro;
+  - enriquecimento de VNIC e IPs durante a importação via OCI.
+- Agendamentos:
+  - suporte a agendamento de execução única foi adicionado na tela de agendamentos.
+- Grupos:
+  - CRUD de grupos, árvore de grupos e relacionamento entre instâncias e grupos foram adicionados.
+- Relatório Custo/Compartimento:
+  - a tela foi redesenhada com seletor de período, abas, tabela avançada de composição, exportação CSV e detalhamento mais rico vindo do microserviço `reports`.
+
+## Atualizações de API
+
+### Backend API (`http://localhost:8000/api`)
+
+- Health:
+  - `GET /health`
+- Compartimentos:
+  - `GET /compartiments/list`
+  - `GET /compartiments/listandupdate`
+  - `GET /compartiments/instancesall`
+  - `POST /compartiments/instancesall/jobs`
+  - `GET /compartiments/instancesall/jobs/{job_id}`
+  - `GET /compartiments/instances/{instance_ocid}/vnic`
+  - `GET /compartiments/vnics/{vnic_id}`
+- Grupos:
+  - `GET /groups`
+  - `GET /groups/tree`
+  - `GET /groups/{group_id}`
+  - `POST /groups`
+  - `PUT /groups/{group_id}`
+  - `DELETE /groups/{group_id}`
+- Instâncias:
+  - `GET /instances`
+  - `POST /instances`
+  - `GET /instances/import-preview/{instance_ocid}`
+  - `POST /instances/import`
+  - `PUT /instances/{instance_id}`
+  - `DELETE /instances/{instance_id}`
+  - `POST /instances/{instance_id}/start`
+  - `POST /instances/{instance_id}/stop`
+  - `GET /instances/{instance_id}/status`
+- Agendamentos:
+  - `GET /schedules`
+  - `POST /schedules`
+  - `PUT /schedules/{schedule_id}`
+  - `DELETE /schedules/{schedule_id}`
+- Execuções:
+  - `GET /executions`
+
+### Reports API (`http://localhost:8010`)
+
+- Health:
+  - `GET /health`
+- Custo por compartimento:
+  - `GET /api/reports/cost-by-compartment?year=YYYY&month=MM`
+  - `GET /api/reports/cost-by-compartment.csv?year=YYYY&month=MM`
+  - `POST /api/reports/cost-by-compartment/refresh`
+
 ## Stack
 
 - Frontend Angular + PrimeNG em layout administrativo inspirado no Sakai
@@ -140,6 +209,20 @@ Arquitetura principal:
 - `src/assets/styles.scss`: identidade visual e ajustes do shell/layout
 - `public/app-config.js`: configuração runtime dos endpoints das APIs
 
+Melhorias recentes do frontend:
+
+- Instâncias:
+  - busca local na tabela de instâncias cadastradas;
+  - preview OCI antes da importação manual;
+  - suporte a edição no fluxo de cadastro;
+  - modal de progresso do `Registro Automático` com polling no estado atual do código local.
+- Relatórios:
+  - `Custo/Compartimento` agora usa apenas o microserviço `reports`;
+  - seletor de mês para o período do relatório;
+  - abas para totais mensais, custos diários e composição detalhada;
+  - tabela avançada de composição com filtros e seleção de colunas;
+  - visualização mais rica da composição diária de custo.
+
 ### Tela Custo/Compartimento
 
 A tela `Dashboard > Custo/Compartimento`:
@@ -151,19 +234,41 @@ A tela `Dashboard > Custo/Compartimento`:
 - exibe o total mensal e os totais por compartimento
 - oferece exportação CSV do período selecionado
 
-## Configuração
+## Variáveis de ambiente
 
-Variáveis de ambiente relevantes:
+A aplicação lê variáveis de ambiente a partir de `.env` e de `docker-compose.yml`. A tabela abaixo documenta todas as variáveis usadas atualmente pelos containers e pela configuração runtime do frontend.
 
-- `DATABASE_URL`
-- `REPORTS_DATABASE_URL`
-- `OCI_CLI_PATH`
-- `OCI_CLI_PROFILE`
-- `OCI_CONFIG_DIR`
-- `REPORTS_OCI_TENANT_ID`
-- `SUPPRESS_OCI_LABEL_WARNING`
-- `API_BASE_URL`
-- `REPORTS_API_BASE_URL`
+| Variável | Serviço(s) | Obrigatória | Padrão | Utilidade |
+| --- | --- | --- | --- | --- |
+| `POSTGRES_DB` | `postgres` | Não | `oci_automation` | Define o nome inicial do banco PostgreSQL criado pelo Docker Compose. |
+| `POSTGRES_USER` | `postgres` | Não | `oci_user` | Define o usuário PostgreSQL do ambiente local em container. |
+| `POSTGRES_PASSWORD` | `postgres` | Não | `oci_password` | Define a senha PostgreSQL do ambiente local em container. |
+| `POSTGRES_PORT` | `postgres` | Não | `5432` | Publica a porta do container PostgreSQL para a máquina host. |
+| `DATABASE_URL` | `backend` | Sim | `postgresql+psycopg://oci_user:oci_password@postgres:5432/oci_automation` | String principal de conexão SQLAlchemy do backend operacional. |
+| `REPORTS_DATABASE_URL` | Compose -> `reports` | Sim | `postgresql+psycopg://oci_user:oci_password@postgres:5432/oci_automation` | Variável externa que alimenta `DATABASE_URL` dentro do container `reports`. |
+| `OCI_CLI_PATH` | `backend`, `reports` | Não | `oci` | Sobrescreve o nome ou caminho completo do executável OCI CLI usado nos containers. |
+| `OCI_CLI_PROFILE` | `backend`, `reports` | Não | `DEFAULT` | Seleciona o profile OCI CLI usado nas operações e na coleta de relatórios. |
+| `OCI_CONFIG_DIR` | `backend`, `reports` | Sim | `/home/appuser/.oci` | Diretório montado nos containers que contém o `config` e os arquivos de chave da OCI. |
+| `REPORTS_OCI_TENANT_ID` | Compose -> `reports` | Não | vazio | Variável externa que alimenta `OCI_TENANT_ID` no container `reports` quando a tenancy precisa ser forçada explicitamente. |
+| `SUPPRESS_OCI_LABEL_WARNING` | `reports` | Não | `true` | Controla se o serviço `reports` deve suprimir avisos de label da OCI durante a normalização do relatório. |
+| `AUTH_ENABLED` | `backend` | Não | `false` | Habilita ou desabilita a validação de autenticação JWT/OIDC no backend operacional. |
+| `OIDC_ISSUER` | `backend` | Não | vazio | Configura o emissor OIDC esperado quando a autenticação está habilitada. |
+| `OIDC_AUDIENCE` | `backend` | Não | vazio | Configura a audience esperada do token quando a autenticação está habilitada. |
+| `OIDC_JWKS_URL` | `backend` | Não | vazio | Informa a URL JWKS usada para validar a assinatura dos JWTs recebidos. |
+| `ALLOWED_GROUPS` | `backend` | Não | vazio | Lista separada por vírgulas com os grupos de identidade autorizados a usar o backend operacional. |
+| `APP_TIMEZONE` | `backend` | Não | `UTC` | Define o timezone da aplicação para comportamento de agendamento e regras temporais do backend. |
+| `SCHEDULER_POLL_SECONDS` | `backend` | Não | `30` | Controla o intervalo de verificação do scheduler para encontrar execuções pendentes. |
+| `SCHEDULER_ENABLED` | `backend` | Não | `true` | Habilita ou desabilita o loop do scheduler na inicialização do backend. |
+| `SCHEDULE_GROUP_MAX_CONCURRENCY` | `backend` | Não | `3` | Limita quantas ações de instâncias do mesmo grupo agendado podem ser executadas em paralelo durante a execução do scheduler. |
+| `CORS_ORIGINS` | `backend`, `reports` | Não | `http://localhost:4200,http://127.0.0.1:4200` | Lista separada por vírgulas com as origens permitidas para chamadas de navegador às APIs. |
+| `API_BASE_URL` | `frontend` | Não | `http://localhost:8000/api` | Endpoint runtime do frontend para o backend operacional; injetado em `public/app-config.js`. |
+| `REPORTS_API_BASE_URL` | `frontend` | Não | `http://localhost:8010/api` | Endpoint runtime do frontend para o microserviço `reports`; injetado em `public/app-config.js`. |
+
+Mapeamentos importantes:
+
+- `REPORTS_DATABASE_URL` é uma variável no Compose que se torna `DATABASE_URL` dentro do container `reports`.
+- `REPORTS_OCI_TENANT_ID` é uma variável no Compose que se torna `OCI_TENANT_ID` dentro do `reports`.
+- `API_BASE_URL` e `REPORTS_API_BASE_URL` são gravadas em runtime no `frontend/public/app-config.js` e depois consumidas pelo `ApiService` no navegador.
 
 ## Desenvolvimento do frontend
 

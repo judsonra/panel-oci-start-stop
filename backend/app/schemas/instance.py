@@ -127,3 +127,28 @@ class CompartmentInstancesImportRead(BaseModel):
     unchanged: int
     failed: int
     compartments: list[CompartmentInstanceImportRead]
+
+
+class ImportInstancesJobCreateRead(BaseModel):
+    job_id: str
+    status: str
+    started_at: datetime
+
+
+class ImportInstancesJobStatusRead(BaseModel):
+    job_id: str
+    status: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    total_compartments: int = 0
+    processed_compartments: int = 0
+    total_instances: int = 0
+    processed_instances: int = 0
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    failed: int = 0
+    current_compartment_name: str | None = None
+    current_instance_name: str | None = None
+    result: CompartmentInstancesImportRead | None = None
+    error: str | None = None

@@ -4,9 +4,12 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db_session
 from app.services.compartment_service import CompartmentService
 from app.services.group_service import GroupService
+from app.services.import_job_service import ImportJobService
 from app.services.instance_service import InstanceService
 from app.services.oci_cli import OCIService, get_oci_service
 from app.services.schedule_service import ScheduleService
+
+import_job_service = ImportJobService()
 
 
 def get_instance_service(
@@ -35,3 +38,7 @@ def get_group_service(
     session: Session = Depends(get_db_session),
 ) -> GroupService:
     return GroupService(session)
+
+
+def get_import_job_service() -> ImportJobService:
+    return import_job_service

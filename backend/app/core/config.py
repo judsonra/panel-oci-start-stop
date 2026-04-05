@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     app_timezone: str = "UTC"
     scheduler_poll_seconds: int = 30
     scheduler_enabled: bool = True
+    schedule_group_max_concurrency: int = 3
     cors_origins: str = "http://localhost:4200,http://127.0.0.1:4200"
 
     @property
