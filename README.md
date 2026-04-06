@@ -8,27 +8,6 @@
 
 Full-stack application for registering, operating, scheduling, and reporting OCI workloads and costs.
 
-## Recent Changes (Last 7 Days)
-
-Coverage window: March 31, 2026 to April 5, 2026.
-
-- Compartments and OCI synchronization:
-  - compartment listing and `listandupdate` synchronization were added to the operational backend and exposed in the sidebar.
-- Automatic instance registration:
-  - the bulk import flow for all active compartments was introduced;
-  - the current local codebase already includes an asynchronous job + polling flow for `Automatic Registration`, with progress details in the UI.
-- Instances screen improvements:
-  - local search by name, OCID and IPs;
-  - OCI import preview before saving;
-  - instance editing in the registration screen;
-  - VNIC and IP enrichment during OCI import.
-- Scheduling:
-  - one-time schedule support was added to the schedules screen.
-- Groups:
-  - group CRUD, group tree and instance-to-group relationships were added.
-- Cost/Compartment report:
-  - the screen was redesigned with period picker, tabs, advanced composition table, CSV export and richer cost composition details from the `reports` microservice.
-
 ## API Updates
 
 ### Backend API (`http://localhost:8000/api`)

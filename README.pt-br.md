@@ -8,27 +8,6 @@
 
 Aplicação full stack para cadastro, acionamento, agendamento e geração de relatórios operacionais e de custo na OCI.
 
-## Mudanças recentes (últimos 7 dias)
-
-Janela de cobertura: 31 de março de 2026 a 5 de abril de 2026.
-
-- Compartimentos e sincronização com OCI:
-  - listagem de compartimentos e sincronização via `listandupdate` foram adicionadas ao backend operacional e expostas no menu lateral.
-- Registro automático de instâncias:
-  - o fluxo de importação em lote de todos os compartimentos ativos foi introduzido;
-  - o código local atual já inclui um fluxo assíncrono com job + polling para `Registro Automático`, com detalhes de progresso na UI.
-- Melhorias na tela de instâncias:
-  - busca local por nome, OCID e IPs;
-  - preview OCI antes de salvar;
-  - edição de instâncias na tela de cadastro;
-  - enriquecimento de VNIC e IPs durante a importação via OCI.
-- Agendamentos:
-  - suporte a agendamento de execução única foi adicionado na tela de agendamentos.
-- Grupos:
-  - CRUD de grupos, árvore de grupos e relacionamento entre instâncias e grupos foram adicionados.
-- Relatório Custo/Compartimento:
-  - a tela foi redesenhada com seletor de período, abas, tabela avançada de composição, exportação CSV e detalhamento mais rico vindo do microserviço `reports`.
-
 ## Atualizações de API
 
 ### Backend API (`http://localhost:8000/api`)
