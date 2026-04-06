@@ -157,4 +157,32 @@ describe('ApiService', () => {
             updated_at: '2026-03-12T00:00:00Z'
         });
     });
+
+    it('uses the backend api prefix for deskmanager catalog and ticket endpoints', () => {
+        service.listDeskManagerUsers().subscribe();
+        service.listDeskManagerCategories('vpn').subscribe();
+        service.createDeskManagerTickets({
+            items: [{ user_id: '2572', category_id: '9896', description: 'Abrir chamado' }]
+        }).subscribe();
+
+        const usersRequest = httpMock.expectOne('http://localhost:8000/api/deskmanager/users');
+        expect(usersRequest.request.method).toBe('GET');
+        usersRequest.flush([]);
+
+        const categoriesRequest = httpMock.expectOne('http://localhost:8000/api/deskmanager/categories?search=vpn');
+        expect(categoriesRequest.request.method).toBe('GET');
+        categoriesRequest.flush([]);
+
+        const createRequest = httpMock.expectOne('http://localhost:8000/api/deskmanager/criarchamado');
+        expect(createRequest.request.method).toBe('POST');
+        expect(createRequest.request.body).toEqual({
+            items: [{ user_id: '2572', category_id: '9896', description: 'Abrir chamado' }]
+        });
+        createRequest.flush({
+            total: 1,
+            success_count: 1,
+            failed_count: 0,
+            results: []
+        });
+    });
 });

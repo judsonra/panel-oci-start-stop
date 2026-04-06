@@ -261,6 +261,16 @@ The application reads environment variables from `.env` and from `docker-compose
 | `SCHEDULER_ENABLED` | `backend` | No | `true` | Enables or disables the backend scheduler loop at startup. |
 | `SCHEDULE_GROUP_MAX_CONCURRENCY` | `backend` | No | `3` | Limits how many instance actions from the same scheduled group can run in parallel during scheduler execution. |
 | `CORS_ORIGINS` | `backend`, `reports` | No | `http://localhost:4200,http://127.0.0.1:4200` | Comma-separated list of allowed browser origins for both APIs. |
+| `DESKMANAGER_AUTH_URL` | `backend` | Yes | `https://api.desk.ms/Login/autenticar` | URL used to authenticate against DeskManager before ticket creation. |
+| `DESKMANAGER_TICKETS_URL` | `backend` | Yes | `https://api.desk.ms/Chamados` | URL of the DeskManager ticket creation endpoint. |
+| `DESKMANAGER_APPROVER_TOKEN` | `backend` | Yes | empty | Token sent in the DeskManager authentication header. |
+| `DESKMANAGER_PUBLIC_KEY` | `backend` | Yes | empty | Operator public key used to obtain a DeskManager access token. |
+| `DESKMANAGER_SOLICITACAO_ID` | `backend` | Yes | `000004` | Value sent as `Solicitacao` when opening tickets. |
+| `DESKMANAGER_IMPACTO_ID` | `backend` | Yes | `000002` | Value sent as `Impacto` when opening tickets. |
+| `DESKMANAGER_URGENCIA_ID` | `backend` | Yes | `000002` | Value sent as `Urgencia` when opening tickets. |
+| `DESKMANAGER_CATEGORIA_ID` | `backend` | Yes | `47859` | Value sent as `Categoria` when opening tickets. |
+| `DESKMANAGER_CATEGORIA_TIPO_ID` | `backend` | Yes | `47859` | Value sent as `CategoriaTipo` when opening tickets. |
+| `DESKMANAGER_GRUPO_ID` | `backend` | Yes | `000019` | Value sent as `Grupo` when opening tickets. |
 | `API_BASE_URL` | `frontend` | No | `http://localhost:8000/api` | Runtime frontend endpoint for the operational backend; injected into `public/app-config.js`. |
 | `REPORTS_API_BASE_URL` | `frontend` | No | `http://localhost:8010/api` | Runtime frontend endpoint for the `reports` microservice; injected into `public/app-config.js`. |
 

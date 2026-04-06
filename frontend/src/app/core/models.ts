@@ -239,3 +239,35 @@ export interface TopbarServiceStatusModel {
     online: boolean;
     docsUrl: string;
 }
+
+export interface DeskManagerUserModel {
+    id: string;
+    name: string;
+}
+
+export interface DeskManagerCategoryModel {
+    id: string;
+    name: string;
+}
+
+export interface DeskManagerCreateTicketItemModel {
+    user_id: string;
+    category_id: string;
+    description: string;
+}
+
+export interface DeskManagerCreateTicketResultModel {
+    user_id: string;
+    category_id: string;
+    description: string;
+    status: 'success' | 'failed';
+    message: string;
+    external_response?: unknown;
+}
+
+export interface DeskManagerCreateTicketsResponseModel {
+    total: number;
+    success_count: number;
+    failed_count: number;
+    results: DeskManagerCreateTicketResultModel[];
+}

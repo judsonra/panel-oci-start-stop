@@ -261,6 +261,16 @@ A aplicação lê variáveis de ambiente a partir de `.env` e de `docker-compose
 | `SCHEDULER_ENABLED` | `backend` | Não | `true` | Habilita ou desabilita o loop do scheduler na inicialização do backend. |
 | `SCHEDULE_GROUP_MAX_CONCURRENCY` | `backend` | Não | `3` | Limita quantas ações de instâncias do mesmo grupo agendado podem ser executadas em paralelo durante a execução do scheduler. |
 | `CORS_ORIGINS` | `backend`, `reports` | Não | `http://localhost:4200,http://127.0.0.1:4200` | Lista separada por vírgulas com as origens permitidas para chamadas de navegador às APIs. |
+| `DESKMANAGER_AUTH_URL` | `backend` | Sim | `https://api.desk.ms/Login/autenticar` | URL usada para autenticar no DeskManager antes de abrir chamados. |
+| `DESKMANAGER_TICKETS_URL` | `backend` | Sim | `https://api.desk.ms/Chamados` | URL do endpoint de criação de chamados do DeskManager. |
+| `DESKMANAGER_APPROVER_TOKEN` | `backend` | Sim | vazio | Token usado no header de autenticação do DeskManager. |
+| `DESKMANAGER_PUBLIC_KEY` | `backend` | Sim | vazio | Chave pública do operador usada para obter o access token no DeskManager. |
+| `DESKMANAGER_SOLICITACAO_ID` | `backend` | Sim | `000004` | Valor enviado no campo `Solicitacao` ao abrir chamados. |
+| `DESKMANAGER_IMPACTO_ID` | `backend` | Sim | `000002` | Valor enviado no campo `Impacto` ao abrir chamados. |
+| `DESKMANAGER_URGENCIA_ID` | `backend` | Sim | `000002` | Valor enviado no campo `Urgencia` ao abrir chamados. |
+| `DESKMANAGER_CATEGORIA_ID` | `backend` | Sim | `47859` | Valor enviado no campo `Categoria` ao abrir chamados. |
+| `DESKMANAGER_CATEGORIA_TIPO_ID` | `backend` | Sim | `47859` | Valor enviado no campo `CategoriaTipo` ao abrir chamados. |
+| `DESKMANAGER_GRUPO_ID` | `backend` | Sim | `000019` | Valor enviado no campo `Grupo` ao abrir chamados. |
 | `API_BASE_URL` | `frontend` | Não | `http://localhost:8000/api` | Endpoint runtime do frontend para o backend operacional; injetado em `public/app-config.js`. |
 | `REPORTS_API_BASE_URL` | `frontend` | Não | `http://localhost:8010/api` | Endpoint runtime do frontend para o microserviço `reports`; injetado em `public/app-config.js`. |
 
