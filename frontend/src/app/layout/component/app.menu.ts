@@ -82,6 +82,18 @@ export class AppMenu {
                 ]
             },
             {
+                label: 'DeskManager',
+                icon: 'pi pi-ticket',
+                expanded: normalizedPath.startsWith('/deskmanager'),
+                items: [
+                    {
+                        label: 'Criar chamado',
+                        icon: 'pi pi-plus-circle',
+                        routerLink: ['/deskmanager/create-ticket']
+                    }
+                ]
+            },
+            {
                 label: 'Auditoria',
                 icon: 'pi pi-history',
                 expanded: normalizedPath.startsWith('/executions'),

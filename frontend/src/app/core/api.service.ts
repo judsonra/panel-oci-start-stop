@@ -5,6 +5,10 @@ import {
     BackendHealthResponse,
     CompartmentModel,
     CostByCompartmentReportModel,
+    DeskManagerCategoryModel,
+    DeskManagerCreateTicketItemModel,
+    DeskManagerCreateTicketsResponseModel,
+    DeskManagerUserModel,
     ExecutionModel,
     GroupModel,
     GroupTreeCompartmentModel,
@@ -172,6 +176,20 @@ export class ApiService {
 
     listExecutions(): Observable<ExecutionModel[]> {
         return this.http.get<ExecutionModel[]>(`${this.baseUrl}/executions`);
+    }
+
+    listDeskManagerUsers(): Observable<DeskManagerUserModel[]> {
+        return this.http.get<DeskManagerUserModel[]>(`${this.baseUrl}/deskmanager/users`);
+    }
+
+    listDeskManagerCategories(search?: string): Observable<DeskManagerCategoryModel[]> {
+        return this.http.get<DeskManagerCategoryModel[]>(`${this.baseUrl}/deskmanager/categories`, {
+            params: search ? { search } : {}
+        });
+    }
+
+    createDeskManagerTickets(payload: { items: DeskManagerCreateTicketItemModel[] }): Observable<DeskManagerCreateTicketsResponseModel> {
+        return this.http.post<DeskManagerCreateTicketsResponseModel>(`${this.baseUrl}/deskmanager/criarchamado`, payload);
     }
 
     // Reports microservice: all report data, cache refresh and exports.

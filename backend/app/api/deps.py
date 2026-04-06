@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
 from app.services.compartment_service import CompartmentService
+from app.services.deskmanager_service import DeskManagerService
 from app.services.group_service import GroupService
 from app.services.import_job_service import ImportJobService
 from app.services.instance_service import InstanceService
@@ -38,6 +39,12 @@ def get_group_service(
     session: Session = Depends(get_db_session),
 ) -> GroupService:
     return GroupService(session)
+
+
+def get_deskmanager_service(
+    session: Session = Depends(get_db_session),
+) -> DeskManagerService:
+    return DeskManagerService(session)
 
 
 def get_import_job_service() -> ImportJobService:

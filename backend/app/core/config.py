@@ -22,6 +22,16 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = True
     schedule_group_max_concurrency: int = 3
     cors_origins: str = "http://localhost:4200,http://127.0.0.1:4200"
+    deskmanager_auth_url: str = ""
+    deskmanager_tickets_url: str = ""
+    deskmanager_approver_token: str = ""
+    deskmanager_public_key: str = ""
+    deskmanager_solicitacao_id: str = ""
+    deskmanager_impacto_id: str = ""
+    deskmanager_urgencia_id: str = ""
+    deskmanager_categoria_id: str = ""
+    deskmanager_categoria_tipo_id: str = ""
+    deskmanager_grupo_id: str = ""
 
     @property
     def allowed_groups_list(self) -> list[str]:

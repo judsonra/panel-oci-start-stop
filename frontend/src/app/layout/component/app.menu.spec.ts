@@ -27,4 +27,12 @@ describe('AppMenu', () => {
         expect(labels).toEqual(['Instâncias', 'Grupos', 'Agendamentos', 'Compartimentos']);
         expect(instancesGroup?.expanded).toBeTrue();
     });
+
+    it('includes DeskManager with the criar chamado entry', () => {
+        const deskManagerGroup = component.model.find((item) => item.label === 'DeskManager');
+        const labels = (deskManagerGroup?.items ?? []).map((item) => item.label);
+
+        expect(labels).toEqual(['Criar chamado']);
+        expect(deskManagerGroup?.items?.[0].routerLink).toEqual(['/deskmanager/create-ticket']);
+    });
 });

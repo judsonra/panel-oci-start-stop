@@ -8,27 +8,6 @@
 
 Aplicação full stack para cadastro, acionamento, agendamento e geração de relatórios operacionais e de custo na OCI.
 
-## Mudanças recentes (últimos 7 dias)
-
-Janela de cobertura: 31 de março de 2026 a 5 de abril de 2026.
-
-- Compartimentos e sincronização com OCI:
-  - listagem de compartimentos e sincronização via `listandupdate` foram adicionadas ao backend operacional e expostas no menu lateral.
-- Registro automático de instâncias:
-  - o fluxo de importação em lote de todos os compartimentos ativos foi introduzido;
-  - o código local atual já inclui um fluxo assíncrono com job + polling para `Registro Automático`, com detalhes de progresso na UI.
-- Melhorias na tela de instâncias:
-  - busca local por nome, OCID e IPs;
-  - preview OCI antes de salvar;
-  - edição de instâncias na tela de cadastro;
-  - enriquecimento de VNIC e IPs durante a importação via OCI.
-- Agendamentos:
-  - suporte a agendamento de execução única foi adicionado na tela de agendamentos.
-- Grupos:
-  - CRUD de grupos, árvore de grupos e relacionamento entre instâncias e grupos foram adicionados.
-- Relatório Custo/Compartimento:
-  - a tela foi redesenhada com seletor de período, abas, tabela avançada de composição, exportação CSV e detalhamento mais rico vindo do microserviço `reports`.
-
 ## Atualizações de API
 
 ### Backend API (`http://localhost:8000/api`)
@@ -261,6 +240,16 @@ A aplicação lê variáveis de ambiente a partir de `.env` e de `docker-compose
 | `SCHEDULER_ENABLED` | `backend` | Não | `true` | Habilita ou desabilita o loop do scheduler na inicialização do backend. |
 | `SCHEDULE_GROUP_MAX_CONCURRENCY` | `backend` | Não | `3` | Limita quantas ações de instâncias do mesmo grupo agendado podem ser executadas em paralelo durante a execução do scheduler. |
 | `CORS_ORIGINS` | `backend`, `reports` | Não | `http://localhost:4200,http://127.0.0.1:4200` | Lista separada por vírgulas com as origens permitidas para chamadas de navegador às APIs. |
+| `DESKMANAGER_AUTH_URL` | `backend` | Sim | `https://api.desk.ms/Login/autenticar` | URL usada para autenticar no DeskManager antes de abrir chamados. |
+| `DESKMANAGER_TICKETS_URL` | `backend` | Sim | `https://api.desk.ms/Chamados` | URL do endpoint de criação de chamados do DeskManager. |
+| `DESKMANAGER_APPROVER_TOKEN` | `backend` | Sim | vazio | Token usado no header de autenticação do DeskManager. |
+| `DESKMANAGER_PUBLIC_KEY` | `backend` | Sim | vazio | Chave pública do operador usada para obter o access token no DeskManager. |
+| `DESKMANAGER_SOLICITACAO_ID` | `backend` | Sim | `000004` | Valor enviado no campo `Solicitacao` ao abrir chamados. |
+| `DESKMANAGER_IMPACTO_ID` | `backend` | Sim | `000002` | Valor enviado no campo `Impacto` ao abrir chamados. |
+| `DESKMANAGER_URGENCIA_ID` | `backend` | Sim | `000002` | Valor enviado no campo `Urgencia` ao abrir chamados. |
+| `DESKMANAGER_CATEGORIA_ID` | `backend` | Sim | `47859` | Valor enviado no campo `Categoria` ao abrir chamados. |
+| `DESKMANAGER_CATEGORIA_TIPO_ID` | `backend` | Sim | `47859` | Valor enviado no campo `CategoriaTipo` ao abrir chamados. |
+| `DESKMANAGER_GRUPO_ID` | `backend` | Sim | `000019` | Valor enviado no campo `Grupo` ao abrir chamados. |
 | `API_BASE_URL` | `frontend` | Não | `http://localhost:8000/api` | Endpoint runtime do frontend para o backend operacional; injetado em `public/app-config.js`. |
 | `REPORTS_API_BASE_URL` | `frontend` | Não | `http://localhost:8010/api` | Endpoint runtime do frontend para o microserviço `reports`; injetado em `public/app-config.js`. |
 

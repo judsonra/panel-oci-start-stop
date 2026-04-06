@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { AppLayout } from './app/layout/component/app.layout';
 import { CompartmentsPage } from './app/pages/compartments/compartments';
 import { Dashboard } from './app/pages/dashboard/dashboard';
+import { DeskManagerCreateTicketPage } from './app/pages/deskmanager/create-ticket';
 import { ExecutionsPage } from './app/pages/executions/executions';
 import { GroupFormPage } from './app/pages/groups/group-form';
 import { GroupsPage } from './app/pages/groups/groups';
@@ -15,6 +16,7 @@ export const appRoutes: Routes = [
         component: AppLayout,
         children: [
             { path: '', component: Dashboard },
+            { path: 'deskmanager/create-ticket', component: DeskManagerCreateTicketPage },
             { path: 'instances', component: InstancesPage },
             { path: 'groups', component: GroupsPage },
             { path: 'groups/new', component: GroupFormPage },

@@ -4,11 +4,24 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import text
 
-from app.api.deps import get_compartment_service, get_group_service, get_import_job_service, get_instance_service, get_schedule_service
+from app.api.deps import (
+    get_compartment_service,
+    get_deskmanager_service,
+    get_group_service,
+    get_import_job_service,
+    get_instance_service,
+    get_schedule_service,
+)
 from app.core.security import CurrentUser, get_current_user
 from app.repositories.execution_repository import ExecutionRepository
 from app.schemas.compartment import CompartmentRead
 from app.schemas.common import HealthResponse
+from app.schemas.deskmanager import (
+    DeskManagerCategoryRead,
+    DeskManagerCreateTicketsRequest,
+    DeskManagerCreateTicketsResponse,
+    DeskManagerUserRead,
+)
 from app.schemas.execution import ExecutionLogRead
 from app.schemas.group import GroupCreate, GroupRead, GroupTreeCompartmentRead, GroupTreeInstanceRead, GroupUpdate
 from app.schemas.instance import (
@@ -26,6 +39,7 @@ from app.schemas.instance import (
 )
 from app.schemas.schedule import ScheduleCreate, ScheduleRead, ScheduleUpdate
 from app.services.compartment_service import CompartmentService
+from app.services.deskmanager_service import DeskManagerService
 from app.services.group_service import GroupService
 from app.services.import_job_service import ImportJobService
 from app.services.instance_service import InstanceService
@@ -67,6 +81,14 @@ def serialize_group(group) -> GroupRead:
     )
 
 
+def serialize_deskmanager_user(user) -> DeskManagerUserRead:
+    return DeskManagerUserRead(id=user.id, name=user.name)
+
+
+def serialize_deskmanager_category(category) -> DeskManagerCategoryRead:
+    return DeskManagerCategoryRead(id=category.id, name=category.name)
+
+
 @router.get("/health", response_model=HealthResponse)
 def health(
     session: Session = Depends(get_db_session),
@@ -98,6 +120,32 @@ def health(
             "oci_error": oci_health.error,
         },
     )
+
+
+@router.get("/deskmanager/users", response_model=list[DeskManagerUserRead])
+def list_deskmanager_users(
+    _: CurrentUser = Depends(get_current_user),
+    service: DeskManagerService = Depends(get_deskmanager_service),
+) -> list[DeskManagerUserRead]:
+    return [serialize_deskmanager_user(item) for item in service.list_users()]
+
+
+@router.get("/deskmanager/categories", response_model=list[DeskManagerCategoryRead])
+def list_deskmanager_categories(
+    search: str | None = None,
+    _: CurrentUser = Depends(get_current_user),
+    service: DeskManagerService = Depends(get_deskmanager_service),
+) -> list[DeskManagerCategoryRead]:
+    return [serialize_deskmanager_category(item) for item in service.list_categories(search)]
+
+
+@router.post("/deskmanager/criarchamado", response_model=DeskManagerCreateTicketsResponse)
+def create_deskmanager_tickets(
+    payload: DeskManagerCreateTicketsRequest,
+    _: CurrentUser = Depends(get_current_user),
+    service: DeskManagerService = Depends(get_deskmanager_service),
+) -> DeskManagerCreateTicketsResponse:
+    return service.create_tickets(payload.items)
 
 
 @router.get("/instances", response_model=list[InstanceRead])
