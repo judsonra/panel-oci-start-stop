@@ -258,6 +258,70 @@ select {
     color: var(--app-copy-soft);
 }
 
+.permission-option,
+.permission-summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.permission-option strong,
+.permission-summary-item strong {
+    color: var(--app-copy);
+}
+
+.permission-option small,
+.permission-summary-item small {
+    color: var(--app-copy-soft);
+}
+
+.permission-summary-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding: 0.85rem;
+    border: 1px solid rgba(227, 216, 196, 0.92);
+    border-radius: 1rem;
+    background: rgba(255, 253, 248, 0.7);
+}
+
+.error-shell,
+.auth-shell {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 2rem;
+}
+
+.error-panel,
+.auth-panel {
+    width: min(100%, 34rem);
+    padding: 2rem;
+    border: 1px solid rgba(227, 216, 196, 0.92);
+    border-radius: 1.5rem;
+    background: rgba(255, 253, 248, 0.94);
+    box-shadow: 0 18px 40px rgba(108, 77, 37, 0.12);
+}
+
+.error-panel h1 {
+    margin: 0.5rem 0 0;
+    font-size: clamp(3rem, 9vw, 5rem);
+    line-height: 1;
+    color: var(--app-accent-strong);
+}
+
+.error-panel h2 {
+    margin: 0.5rem 0 0.75rem;
+    font-size: 1.8rem;
+}
+
+.error-panel p,
+.auth-panel p {
+    margin: 0;
+    color: var(--app-copy-soft);
+}
+
 .app-panel-menu .p-panelmenu-item-link-active,
 .app-panel-menu .p-panelmenu-header-active > .p-panelmenu-header-content {
     color: var(--app-accent-strong);

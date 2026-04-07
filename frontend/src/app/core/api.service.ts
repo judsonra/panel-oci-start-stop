@@ -2,6 +2,13 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
+    AccessGroupModel,
+    AccessPermissionModel,
+    AccessUserModel,
+    AuditAccessLogModel,
+    AuditConfigurationLogModel,
+    AuthConfigModel,
+    AuthTokenModel,
     BackendHealthResponse,
     CompartmentModel,
     CostByCompartmentReportModel,
@@ -20,6 +27,7 @@ import {
     InstanceVnicModel,
     ReportsHealthResponse,
     ScheduleModel,
+    CurrentUserModel,
     VnicDetailsModel
 } from './models';
 
@@ -28,6 +36,13 @@ declare global {
         __APP_CONFIG__?: {
             apiBaseUrl?: string;
             reportsApiBaseUrl?: string;
+            authEntraEnabled?: boolean;
+            authLocalEnabled?: boolean;
+            entraAuthority?: string;
+            entraClientId?: string;
+            entraRedirectUri?: string;
+            entraPostLogoutRedirectUri?: string;
+            entraScopes?: string;
         };
     }
 }
@@ -71,6 +86,30 @@ export class ApiService {
 
     getReportsDocsUrl(): string {
         return this.resolveDocsUrl(this.reportsBaseUrl);
+    }
+
+    getAuthConfig(): Observable<AuthConfigModel> {
+        return this.http.get<AuthConfigModel>(`${this.baseUrl}/auth/config`);
+    }
+
+    loginLocal(payload: { email: string; password: string }): Observable<AuthTokenModel> {
+        return this.http.post<AuthTokenModel>(`${this.baseUrl}/auth/local/login`, payload);
+    }
+
+    exchangeEntraCode(payload: { code: string; code_verifier: string; redirect_uri: string }): Observable<AuthTokenModel> {
+        return this.http.post<AuthTokenModel>(`${this.baseUrl}/auth/entra/exchange`, payload);
+    }
+
+    getCurrentUser(): Observable<CurrentUserModel> {
+        return this.http.get<CurrentUserModel>(`${this.baseUrl}/auth/me`);
+    }
+
+    logout(): Observable<void> {
+        return this.http.post<void>(`${this.baseUrl}/auth/logout`, {});
+    }
+
+    registerPageAccess(path: string): Observable<void> {
+        return this.http.post<void>(`${this.baseUrl}/auth/page-access`, { path });
     }
 
     // Backend microservice: instance control and operational entities.
@@ -190,6 +229,75 @@ export class ApiService {
 
     createDeskManagerTickets(payload: { items: DeskManagerCreateTicketItemModel[] }): Observable<DeskManagerCreateTicketsResponseModel> {
         return this.http.post<DeskManagerCreateTicketsResponseModel>(`${this.baseUrl}/deskmanager/criarchamado`, payload);
+    }
+
+    listAccessUsers(): Observable<AccessUserModel[]> {
+        return this.http.get<AccessUserModel[]>(`${this.baseUrl}/admin/users`);
+    }
+
+    createAccessUser(payload: {
+        email: string;
+        display_name?: string | null;
+        is_active: boolean;
+        is_superadmin: boolean;
+        direct_permissions: string[];
+        group_ids: string[];
+    }): Observable<AccessUserModel> {
+        return this.http.post<AccessUserModel>(`${this.baseUrl}/admin/users`, payload);
+    }
+
+    updateAccessUser(
+        userId: string,
+        payload: Partial<{
+            email: string;
+            display_name?: string | null;
+            is_active: boolean;
+            is_superadmin: boolean;
+            direct_permissions: string[];
+            group_ids: string[];
+        }>
+    ): Observable<AccessUserModel> {
+        return this.http.put<AccessUserModel>(`${this.baseUrl}/admin/users/${userId}`, payload);
+    }
+
+    listAccessGroups(): Observable<AccessGroupModel[]> {
+        return this.http.get<AccessGroupModel[]>(`${this.baseUrl}/admin/groups`);
+    }
+
+    createAccessGroup(payload: { name: string; description?: string | null; is_active: boolean; permission_keys: string[] }): Observable<AccessGroupModel> {
+        return this.http.post<AccessGroupModel>(`${this.baseUrl}/admin/groups`, payload);
+    }
+
+    updateAccessGroup(
+        groupId: string,
+        payload: Partial<{ name: string; description?: string | null; is_active: boolean; permission_keys: string[] }>
+    ): Observable<AccessGroupModel> {
+        return this.http.put<AccessGroupModel>(`${this.baseUrl}/admin/groups/${groupId}`, payload);
+    }
+
+    listAccessPermissions(): Observable<AccessPermissionModel[]> {
+        return this.http.get<AccessPermissionModel[]>(`${this.baseUrl}/admin/permissions`);
+    }
+
+    updateAccessPermission(permissionId: string, payload: { label: string; description?: string | null }): Observable<AccessPermissionModel> {
+        return this.http.put<AccessPermissionModel>(`${this.baseUrl}/admin/permissions/${permissionId}`, payload);
+    }
+
+    listAuditAccess(params?: { email?: string; event_type?: string; auth_source?: string; query?: string }): Observable<AuditAccessLogModel[]> {
+        return this.http.get<AuditAccessLogModel[]>(`${this.baseUrl}/audit/access`, { params: params ?? {} });
+    }
+
+    listAuditConfigurations(params?: {
+        actor_email?: string;
+        event_type?: string;
+        entity_type?: string;
+        query?: string;
+    }): Observable<AuditConfigurationLogModel[]> {
+        return this.http.get<AuditConfigurationLogModel[]>(`${this.baseUrl}/audit/configurations`, { params: params ?? {} });
+    }
+
+    listAuditExecutions(): Observable<ExecutionModel[]> {
+        return this.http.get<ExecutionModel[]>(`${this.baseUrl}/audit/executions`);
     }
 
     // Reports microservice: all report data, cache refresh and exports.

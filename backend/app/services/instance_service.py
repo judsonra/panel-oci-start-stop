@@ -13,6 +13,7 @@ from app.repositories.compartment_repository import CompartmentRepository
 from app.repositories.execution_repository import ExecutionRepository
 from app.repositories.instance_repository import InstanceRepository
 from app.schemas.instance import InstanceCreate, InstanceUpdate
+from app.services.audit_service import AuditService
 from app.services.oci_cli import OCIVnicDetails, OCIService
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,7 @@ class InstanceService:
         self.compartments = CompartmentRepository(session)
         self.executions = ExecutionRepository(session)
         self.oci_service = oci_service
+        self.audit = AuditService(session)
 
     def list_instances(self) -> list[Instance]:
         return self.instances.list()
@@ -183,9 +185,24 @@ class InstanceService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Compartment not found")
         return self.instances.update(instance, payload)
 
-    def delete_instance(self, instance_id: str) -> None:
+    def delete_instance(self, instance_id: str, *, actor_email: str | None = None, actor_user_id: str | None = None) -> None:
         instance = self.get_instance(instance_id)
+        before_data = {
+            "id": instance.id,
+            "name": instance.name,
+            "ocid": instance.ocid,
+            "compartment_id": instance.compartment_id,
+        }
         self.instances.delete(instance)
+        self.audit.log_configuration_event(
+            event_type="instance_deleted",
+            entity_type="instance",
+            entity_id=before_data["id"],
+            actor_email=actor_email,
+            actor_user_id=actor_user_id,
+            summary=f"Instance {before_data['name']} deleted",
+            before_data=before_data,
+        )
 
     def get_status(self, instance_id: str) -> ExecutionLog:
         instance = self.get_instance(instance_id)

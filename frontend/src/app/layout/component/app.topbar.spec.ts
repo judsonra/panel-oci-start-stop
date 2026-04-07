@@ -1,17 +1,31 @@
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { ApiService } from '@/app/core/api.service';
+import { AuthService } from '@/app/core/auth.service';
 import { AppTopbar } from './app.topbar';
 
 describe('AppTopbar', () => {
     let fixture: ComponentFixture<AppTopbar>;
     let component: AppTopbar;
     let apiService: jasmine.SpyObj<ApiService>;
+    let authService: jasmine.SpyObj<AuthService> & { currentUser: ReturnType<typeof signal> };
 
     beforeEach(async () => {
         jasmine.clock().install();
         apiService = jasmine.createSpyObj<ApiService>('ApiService', ['getBackendHealth', 'getReportsHealth', 'getBackendDocsUrl', 'getReportsDocsUrl']);
+        authService = Object.assign(jasmine.createSpyObj<AuthService>('AuthService', ['logout']), {
+            currentUser: signal({
+                subject: 'local-admin',
+                email: 'admin@example.com',
+                groups: ['local_admin'],
+                permissions: ['*'],
+                auth_source: 'local_admin',
+                is_superadmin: true,
+                access_user_id: null
+            })
+        });
         apiService.getBackendHealth.and.returnValue(
             of({
                 status: 'ok',
@@ -28,7 +42,7 @@ describe('AppTopbar', () => {
 
         await TestBed.configureTestingModule({
             imports: [AppTopbar],
-            providers: [provideRouter([]), { provide: ApiService, useValue: apiService }]
+            providers: [provideRouter([]), { provide: ApiService, useValue: apiService }, { provide: AuthService, useValue: authService }]
         }).compileComponents();
     });
 
@@ -120,5 +134,11 @@ describe('AppTopbar', () => {
 
         expect(apiService.getBackendHealth).toHaveBeenCalledTimes(2);
         expect(apiService.getReportsHealth).toHaveBeenCalledTimes(2);
+    });
+
+    it('renders current user email in the topbar', () => {
+        createComponent();
+
+        expect(fixture.nativeElement.querySelector('.layout-topbar-user')?.textContent?.trim()).toBe('admin@example.com');
     });
 });

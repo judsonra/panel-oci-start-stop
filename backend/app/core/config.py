@@ -17,6 +17,21 @@ class Settings(BaseSettings):
     oidc_audience: str = ""
     oidc_jwks_url: str = ""
     allowed_groups: str = ""
+    entra_auth_enabled: bool = False
+    entra_tenant_id: str = ""
+    entra_client_id: str = ""
+    entra_authority: str = ""
+    entra_redirect_uri: str = ""
+    entra_post_logout_redirect_uri: str = ""
+    entra_scopes: str = "openid profile email"
+    entra_jwks_url: str = ""
+    entra_issuer: str = ""
+    entra_audience: str = ""
+    local_admin_enabled: bool = False
+    local_admin_email: str = ""
+    local_admin_password_hash: str = ""
+    local_auth_jwt_secret: str = ""
+    local_auth_jwt_expires_minutes: int = 480
     app_timezone: str = "UTC"
     scheduler_poll_seconds: int = 30
     scheduler_enabled: bool = True
@@ -40,6 +55,15 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def entra_scopes_list(self) -> list[str]:
+        return [scope.strip() for scope in self.entra_scopes.split(" ") if scope.strip()]
+
+    @property
+    def entra_token_url(self) -> str:
+        authority = self.entra_authority.strip().rstrip("/")
+        return f"{authority}/oauth2/v2.0/token" if authority else ""
 
 
 @lru_cache

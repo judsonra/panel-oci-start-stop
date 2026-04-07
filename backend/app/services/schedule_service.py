@@ -13,6 +13,7 @@ from app.repositories.instance_repository import InstanceRepository
 from app.repositories.schedule_repository import ScheduleRepository
 from app.schemas.schedule import ScheduleCreate, ScheduleUpdate
 from app.db.session import SessionLocal
+from app.services.audit_service import AuditService
 from app.services.instance_service import InstanceService
 from app.services.oci_cli import OCIService
 
@@ -25,6 +26,7 @@ class ScheduleService:
         self.groups = GroupRepository(session)
         self.schedules = ScheduleRepository(session)
         self.instance_service = instance_service
+        self.audit = AuditService(session)
 
     def list_schedules(self) -> list[Schedule]:
         return self.schedules.list()
@@ -35,21 +37,53 @@ class ScheduleService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
         return schedule
 
-    def create_schedule(self, payload: ScheduleCreate) -> Schedule:
+    def create_schedule(self, payload: ScheduleCreate, *, actor_email: str | None = None, actor_user_id: str | None = None) -> Schedule:
         self._validate_target(payload.target_type, payload.instance_id, payload.group_id)
-        return self.schedules.create(payload)
+        schedule = self.schedules.create(payload)
+        self.audit.log_configuration_event(
+            event_type="schedule_created",
+            entity_type="schedule",
+            entity_id=schedule.id,
+            actor_email=actor_email,
+            actor_user_id=actor_user_id,
+            summary=f"Schedule {schedule.id} created",
+            after_data=self._serialize_schedule(schedule),
+        )
+        return schedule
 
-    def update_schedule(self, schedule_id: str, payload: ScheduleUpdate) -> Schedule:
+    def update_schedule(self, schedule_id: str, payload: ScheduleUpdate, *, actor_email: str | None = None, actor_user_id: str | None = None) -> Schedule:
         schedule = self.get_schedule(schedule_id)
+        before_data = self._serialize_schedule(schedule)
         next_target_type = payload.target_type or schedule.target_type
         next_instance_id = payload.instance_id if "instance_id" in payload.model_fields_set else schedule.instance_id
         next_group_id = payload.group_id if "group_id" in payload.model_fields_set else schedule.group_id
         self._validate_target(next_target_type, next_instance_id, next_group_id)
-        return self.schedules.update(schedule, payload)
+        schedule = self.schedules.update(schedule, payload)
+        self.audit.log_configuration_event(
+            event_type="schedule_updated",
+            entity_type="schedule",
+            entity_id=schedule.id,
+            actor_email=actor_email,
+            actor_user_id=actor_user_id,
+            summary=f"Schedule {schedule.id} updated",
+            before_data=before_data,
+            after_data=self._serialize_schedule(schedule),
+        )
+        return schedule
 
-    def delete_schedule(self, schedule_id: str) -> None:
+    def delete_schedule(self, schedule_id: str, *, actor_email: str | None = None, actor_user_id: str | None = None) -> None:
         schedule = self.get_schedule(schedule_id)
+        before_data = self._serialize_schedule(schedule)
         self.schedules.delete(schedule)
+        self.audit.log_configuration_event(
+            event_type="schedule_deleted",
+            entity_type="schedule",
+            entity_id=before_data["id"],
+            actor_email=actor_email,
+            actor_user_id=actor_user_id,
+            summary=f"Schedule {before_data['id']} deleted",
+            before_data=before_data,
+        )
 
     def process_due_schedules(self, now: datetime | None = None) -> int:
         now = now or datetime.now(timezone.utc)
@@ -106,6 +140,22 @@ class ScheduleService:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="instance_id is not allowed for group schedules")
         if not group_id or self.groups.get(group_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+
+    @staticmethod
+    def _serialize_schedule(schedule: Schedule) -> dict:
+        return {
+            "id": schedule.id,
+            "target_type": schedule.target_type.value,
+            "instance_id": schedule.instance_id,
+            "group_id": schedule.group_id,
+            "type": schedule.type.value,
+            "action": schedule.action.value,
+            "run_at_utc": schedule.run_at_utc.isoformat() if schedule.run_at_utc else None,
+            "days_of_week": list(schedule.days_of_week) if schedule.days_of_week else None,
+            "time_utc": schedule.time_utc,
+            "enabled": schedule.enabled,
+            "last_triggered_at": schedule.last_triggered_at.isoformat() if schedule.last_triggered_at else None,
+        }
 
     def _trigger_group(self, schedule: Schedule) -> None:
         if schedule.group_id is None:

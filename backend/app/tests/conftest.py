@@ -14,9 +14,11 @@ os.environ["SCHEDULER_ENABLED"] = "false"
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import app.db.base  # noqa: E402,F401
+from app.models.access_control import AccessPermission  # noqa: E402
 from app.models.deskmanager_category import DeskManagerCategory  # noqa: E402
 from app.models.deskmanager_user import DeskManagerUser  # noqa: E402
 from app.models.base import Base  # noqa: E402
+from app.services.access_catalog import ACCESS_PERMISSION_CATALOG  # noqa: E402
 from app.services.deskmanager_catalog import DESKMANAGER_CATEGORIES, DESKMANAGER_USERS  # noqa: E402
 from app.services.oci_cli import OCICompartmentSummary  # noqa: E402
 from app.services.oci_cli import OCICommandResult  # noqa: E402
@@ -184,6 +186,12 @@ def reset_database() -> Generator[None, None, None]:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     with TestingSessionLocal() as session:
+        session.add_all(
+            [
+                AccessPermission(key=key, label=label, description=description)
+                for key, label, description in ACCESS_PERMISSION_CATALOG
+            ]
+        )
         session.add_all([DeskManagerUser(id=item_id, name=name) for item_id, name in DESKMANAGER_USERS])
         session.add_all([DeskManagerCategory(id=item_id, name=name) for item_id, name in DESKMANAGER_CATEGORIES])
         session.commit()

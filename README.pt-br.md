@@ -160,7 +160,7 @@ Fluxo do relatório:
 - UI em `http://localhost:4200`
 - Base oficial do cliente em `frontend/`
 - Stack: Angular 21 + PrimeNG 21 + layout Sakai NG
-- Nesta fase não há tela de login; a aplicação abre direto no shell principal
+- A autenticação agora suporta redirecionamento para Microsoft Entra ID e um login local administrativo opcional e oculto em `/access`
 
 ### Estrutura do frontend
 
@@ -235,6 +235,21 @@ A aplicação lê variáveis de ambiente a partir de `.env` e de `docker-compose
 | `OIDC_AUDIENCE` | `backend` | Não | vazio | Configura a audience esperada do token quando a autenticação está habilitada. |
 | `OIDC_JWKS_URL` | `backend` | Não | vazio | Informa a URL JWKS usada para validar a assinatura dos JWTs recebidos. |
 | `ALLOWED_GROUPS` | `backend` | Não | vazio | Lista separada por vírgulas com os grupos de identidade autorizados a usar o backend operacional. |
+| `ENTRA_AUTH_ENABLED` | `backend` | Não | `false` | Habilita a autenticação Microsoft Entra ID por OpenID Connect/OAuth 2.0 Authorization Code + PKCE. |
+| `ENTRA_TENANT_ID` | `backend` | Não | vazio | Identificador opcional do tenant Entra para alinhamento operacional e documentação. |
+| `ENTRA_CLIENT_ID` | `backend`, runtime do `frontend` | Não | vazio | Client ID público da aplicação Entra usado no fluxo de redirecionamento do navegador. |
+| `ENTRA_AUTHORITY` | `backend`, runtime do `frontend` | Não | vazio | URL base da autoridade Entra usada nos fluxos de authorize, token e logout. |
+| `ENTRA_REDIRECT_URI` | `backend`, runtime do `frontend` | Não | `http://localhost:4200/auth/callback` | Redirect URI registrada no Entra e usada no retorno do SPA. |
+| `ENTRA_POST_LOGOUT_REDIRECT_URI` | `backend`, runtime do `frontend` | Não | `http://localhost:4200/access` | Destino do navegador após o logout na Microsoft. |
+| `ENTRA_SCOPES` | `backend`, runtime do `frontend` | Não | `openid profile email` | Scopes separados por espaço solicitados durante o login Entra. |
+| `ENTRA_JWKS_URL` | `backend` | Não | vazio | Endpoint JWKS usado pelo backend para validar tokens do Entra ID. |
+| `ENTRA_ISSUER` | `backend` | Não | vazio | Claim `issuer` esperada nos tokens válidos do Entra ID. |
+| `ENTRA_AUDIENCE` | `backend` | Não | vazio | Claim `audience` esperada nos tokens válidos do Entra ID. |
+| `LOCAL_ADMIN_ENABLED` | `backend` | Não | `false` | Habilita o login local oculto de superadmin exposto em `/access`. |
+| `LOCAL_ADMIN_EMAIL` | `backend` | Sim quando `LOCAL_ADMIN_ENABLED=true` | vazio | Email de login do superadmin local. Valores vazios são rejeitados quando o login local está ativo. |
+| `LOCAL_ADMIN_PASSWORD_HASH` | `backend` | Sim quando `LOCAL_ADMIN_ENABLED=true` | vazio | Hash bcrypt ou Argon2 da senha do superadmin local. |
+| `LOCAL_AUTH_JWT_SECRET` | `backend` | Sim quando houver emissão de token local | vazio | Segredo usado pelo backend para assinar os JWTs locais da aplicação. |
+| `LOCAL_AUTH_JWT_EXPIRES_MINUTES` | `backend` | Não | `480` | Tempo de expiração, em minutos, dos JWTs locais emitidos pela aplicação. |
 | `APP_TIMEZONE` | `backend` | Não | `UTC` | Define o timezone da aplicação para comportamento de agendamento e regras temporais do backend. |
 | `SCHEDULER_POLL_SECONDS` | `backend` | Não | `30` | Controla o intervalo de verificação do scheduler para encontrar execuções pendentes. |
 | `SCHEDULER_ENABLED` | `backend` | Não | `true` | Habilita ou desabilita o loop do scheduler na inicialização do backend. |
@@ -257,7 +272,7 @@ Mapeamentos importantes:
 
 - `REPORTS_DATABASE_URL` é uma variável no Compose que se torna `DATABASE_URL` dentro do container `reports`.
 - `REPORTS_OCI_TENANT_ID` é uma variável no Compose que se torna `OCI_TENANT_ID` dentro do `reports`.
-- `API_BASE_URL` e `REPORTS_API_BASE_URL` são gravadas em runtime no `frontend/public/app-config.js` e depois consumidas pelo `ApiService` no navegador.
+- `API_BASE_URL`, `REPORTS_API_BASE_URL`, `ENTRA_AUTH_ENABLED`, `LOCAL_ADMIN_ENABLED`, `ENTRA_AUTHORITY`, `ENTRA_CLIENT_ID`, `ENTRA_REDIRECT_URI`, `ENTRA_POST_LOGOUT_REDIRECT_URI` e `ENTRA_SCOPES` são gravadas em runtime no `frontend/public/app-config.js`.
 
 ## Desenvolvimento do frontend
 

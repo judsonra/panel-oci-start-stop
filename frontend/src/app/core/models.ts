@@ -240,6 +240,91 @@ export interface TopbarServiceStatusModel {
     docsUrl: string;
 }
 
+export interface AuthConfigModel {
+    entra_enabled: boolean;
+    local_enabled: boolean;
+    authority?: string | null;
+    client_id?: string | null;
+    redirect_uri?: string | null;
+    post_logout_redirect_uri?: string | null;
+    scopes: string[];
+}
+
+export interface AuthTokenModel {
+    access_token: string;
+    token_type: string;
+    expires_in: number;
+}
+
+export interface CurrentUserModel {
+    subject: string;
+    email?: string | null;
+    groups: string[];
+    permissions: string[];
+    auth_source: string;
+    is_superadmin: boolean;
+    access_user_id?: string | null;
+}
+
+export interface AccessPermissionModel {
+    id: string;
+    key: string;
+    label: string;
+    description?: string | null;
+}
+
+export interface AccessGroupModel {
+    id: string;
+    name: string;
+    description?: string | null;
+    is_active: boolean;
+    permission_keys: string[];
+    member_count: number;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface AccessUserModel {
+    id: string;
+    email: string;
+    display_name?: string | null;
+    is_active: boolean;
+    is_superadmin: boolean;
+    direct_permissions: string[];
+    group_ids: string[];
+    effective_permissions: string[];
+    created_at: string;
+    updated_at: string;
+}
+
+export interface AuditAccessLogModel {
+    id: string;
+    event_type: string;
+    auth_source?: string | null;
+    email?: string | null;
+    user_id?: string | null;
+    ip_address?: string | null;
+    user_agent?: string | null;
+    path?: string | null;
+    method?: string | null;
+    status_code?: number | null;
+    message?: string | null;
+    created_at: string;
+}
+
+export interface AuditConfigurationLogModel {
+    id: string;
+    event_type: string;
+    entity_type: string;
+    entity_id?: string | null;
+    actor_email?: string | null;
+    actor_user_id?: string | null;
+    summary: string;
+    before_data?: Record<string, unknown> | null;
+    after_data?: Record<string, unknown> | null;
+    created_at: string;
+}
+
 export interface DeskManagerUserModel {
     id: string;
     name: string;

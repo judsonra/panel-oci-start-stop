@@ -53,6 +53,6 @@ export class ExecutionsPage implements OnInit {
     readonly executions = signal<ExecutionModel[]>([]);
 
     ngOnInit(): void {
-        this.api.listExecutions().subscribe((items) => this.executions.set(items));
+        this.api.listAuditExecutions().subscribe((items) => this.executions.set(items));
     }
 }
