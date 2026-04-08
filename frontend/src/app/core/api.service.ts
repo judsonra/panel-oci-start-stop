@@ -24,6 +24,7 @@ import {
     ImportAllCompartmentsJobStatusModel,
     InstanceImportPreviewModel,
     InstanceModel,
+    InstanceStatusRefreshModel,
     InstanceVnicModel,
     ReportsHealthResponse,
     ScheduleModel,
@@ -195,6 +196,10 @@ export class ApiService {
 
     getInstanceStatus(instanceId: string): Observable<ExecutionModel> {
         return this.http.get<ExecutionModel>(`${this.baseUrl}/instances/${instanceId}/status`);
+    }
+
+    refreshInstanceStatuses(): Observable<InstanceStatusRefreshModel> {
+        return this.http.post<InstanceStatusRefreshModel>(`${this.baseUrl}/instances/status-refresh`, {});
     }
 
     listSchedules(): Observable<ScheduleModel[]> {

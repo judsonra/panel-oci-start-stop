@@ -42,6 +42,7 @@ class FakeOCIService:
                 OCIInstanceSummary(
                     name="Instance A1",
                     ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+                    lifecycle_state="RUNNING",
                     vcpu=2.0,
                     memory_gbs=12.0,
                     oci_created_at=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc),
@@ -51,6 +52,7 @@ class FakeOCIService:
                 OCIInstanceSummary(
                     name="Instance B1",
                     ocid="ocid1.instance.oc1.sa-saopaulo-1.autob1",
+                    lifecycle_state="STOPPED",
                     vcpu=4.0,
                     memory_gbs=24.0,
                     oci_created_at=datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc),
@@ -205,6 +207,7 @@ def reset_database() -> Generator[None, None, None]:
             OCIInstanceSummary(
                 name="Instance A1",
                 ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+                lifecycle_state="RUNNING",
                 vcpu=2.0,
                 memory_gbs=12.0,
                 oci_created_at=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc),
@@ -214,6 +217,7 @@ def reset_database() -> Generator[None, None, None]:
             OCIInstanceSummary(
                 name="Instance B1",
                 ocid="ocid1.instance.oc1.sa-saopaulo-1.autob1",
+                lifecycle_state="STOPPED",
                 vcpu=4.0,
                 memory_gbs=24.0,
                 oci_created_at=datetime(2026, 3, 21, 10, 0, tzinfo=timezone.utc),

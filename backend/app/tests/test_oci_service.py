@@ -179,3 +179,22 @@ def test_list_compartments_command_generation_and_parsing():
                     result = service.list_compartments()
     assert [item.name for item in result] == ["Root", "Apps"]
     assert run_mock.call_args.args[0][:4] == ["oci", "iam", "compartment", "list"]
+
+
+def test_list_instances_by_compartment_command_generation_and_parsing():
+    service = OCIService(make_settings())
+    with patch("app.services.oci_cli.shutil.which", return_value="/usr/bin/oci"):
+        with patch("app.services.oci_cli.Path.is_file", return_value=True):
+            with patch.object(OCIService, "resolved_key_file", return_value="/tmp/mock-oci/api.pem"):
+                with patch("app.services.oci_cli.subprocess.run") as run_mock:
+                    run_mock.return_value = SimpleNamespace(
+                        returncode=0,
+                        stdout='{"data":[{"nome":"VM A","id":"ocid1.instance.oc1..a","lifecycleState":"RUNNING","vcpus":2,"memoria":12,"criadoEm":"2026-03-20T10:00:00+00:00"}]}',
+                        stderr="",
+                    )
+                    result = service.list_instances_by_compartment("ocid1.compartment.oc1..aaaa")
+    assert len(result) == 1
+    assert result[0].name == "VM A"
+    assert result[0].ocid == "ocid1.instance.oc1..a"
+    assert result[0].lifecycle_state == "RUNNING"
+    assert run_mock.call_args.args[0][:4] == ["oci", "compute", "instance", "list"]

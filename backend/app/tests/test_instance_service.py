@@ -4,6 +4,7 @@ from app.api.routes import (
     create_instance,
     get_instance_import_preview,
     get_instance_vnic,
+    refresh_instance_statuses,
     get_status,
     get_vnic_details,
     import_all_compartment_instances,
@@ -371,3 +372,114 @@ def test_import_all_compartment_instances_handles_missing_vnic_without_failing(o
     assert imported.vnic_id is None
     assert imported.public_ip is None
     assert imported.private_ip is None
+
+
+def test_refresh_statuses_by_compartment_updates_only_registered_instances(override_session):
+    CompartmentService(override_session, fake_oci_service).list_and_update()
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="Instance A1",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+            description="local",
+            enabled=False,
+        )
+    )
+    created.compartment_id = service.compartments.get_by_ocid("ocid1.compartment.oc1..aaaa").id
+    created.last_known_state = "STOPPED"
+    override_session.add(created)
+    override_session.commit()
+
+    result = service.refresh_statuses_by_compartment()
+    updated = service.instances.get_by_ocid("ocid1.instance.oc1.sa-saopaulo-1.autoa1")
+    missing = service.instances.get_by_ocid("ocid1.instance.oc1.sa-saopaulo-1.autob1")
+
+    assert result.total_compartments == 2
+    assert result.processed_compartments == 2
+    assert result.matched_instances == 1
+    assert result.updated == 1
+    assert result.unchanged == 0
+    assert result.failed == 0
+    assert updated is not None
+    assert updated.last_known_state == "RUNNING"
+    assert updated.description == "local"
+    assert updated.enabled is False
+    assert missing is None
+
+
+def test_refresh_statuses_by_compartment_ignores_unchanged_states(override_session):
+    CompartmentService(override_session, fake_oci_service).list_and_update()
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="Instance A1",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+            description=None,
+            enabled=True,
+        )
+    )
+    created.compartment_id = service.compartments.get_by_ocid("ocid1.compartment.oc1..aaaa").id
+    created.last_known_state = "RUNNING"
+    override_session.add(created)
+    override_session.commit()
+
+    result = service.refresh_statuses_by_compartment()
+
+    assert result.matched_instances == 1
+    assert result.updated == 0
+    assert result.unchanged == 1
+
+
+def test_refresh_statuses_by_compartment_continues_after_compartment_failure(override_session):
+    CompartmentService(override_session, fake_oci_service).list_and_update()
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="Instance A1",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+            description=None,
+            enabled=True,
+        )
+    )
+    created.compartment_id = service.compartments.get_by_ocid("ocid1.compartment.oc1..aaaa").id
+    override_session.add(created)
+    override_session.commit()
+    original_list = fake_oci_service.list_instances_by_compartment
+
+    def failing_list(compartment_ocid: str):
+        if compartment_ocid == "ocid1.compartment.oc1..bbbb":
+            raise RuntimeError("oci_compartment_failed")
+        return original_list(compartment_ocid)
+
+    fake_oci_service.list_instances_by_compartment = failing_list
+    try:
+        result = service.refresh_statuses_by_compartment()
+    finally:
+        fake_oci_service.list_instances_by_compartment = original_list
+
+    assert result.processed_compartments == 2
+    assert result.updated == 1
+    assert result.failed == 1
+    assert any(item.compartment_ocid == "ocid1.compartment.oc1..bbbb" and item.failed == 1 for item in result.compartments)
+
+
+def test_refresh_statuses_route_returns_summary(override_session):
+    CompartmentService(override_session, fake_oci_service).list_and_update()
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="Instance A1",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+            description=None,
+            enabled=True,
+        )
+    )
+    created.compartment_id = service.compartments.get_by_ocid("ocid1.compartment.oc1..aaaa").id
+    override_session.add(created)
+    override_session.commit()
+
+    response = refresh_instance_statuses(CurrentUser(subject="local", email=None, groups=[]), service)
+
+    assert response.total_compartments == 2
+    assert response.updated == 1
+    assert response.compartments[0].compartment_ocid.startswith("ocid1.compartment.")

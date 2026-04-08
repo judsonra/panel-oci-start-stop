@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Subscription, concat, finalize, firstValueFrom, of, switchMap, timer } from 'rxjs';
+import { Subscription, concat, finalize, of, switchMap, timer } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -14,7 +14,7 @@ import { TextareaModule } from 'primeng/textarea';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TooltipModule } from 'primeng/tooltip';
 import { ApiService } from '@/app/core/api.service';
-import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompartmentsModel, InstanceImportPreviewModel, InstanceModel } from '@/app/core/models';
+import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompartmentsModel, InstanceImportPreviewModel, InstanceModel, InstanceStatusRefreshModel } from '@/app/core/models';
 
 @Component({
     selector: 'app-instances-page',
@@ -621,13 +621,12 @@ export class InstancesPage implements OnInit, OnDestroy {
         this.autoRegisterProgressMessage.set('Preparando sincronização das instâncias...');
     }
 
-    async confirmRefreshStatuses(): Promise<void> {
+    confirmRefreshStatuses(): void {
         this.refreshConfirmationVisible.set(false);
-        const enabledInstances = this.instances().filter((instance) => instance.enabled);
 
-        if (enabledInstances.length === 0) {
+        if (this.instances().length === 0) {
             this.actionFeedbackSeverity.set('error');
-            this.actionFeedback.set('Não há instâncias habilitadas para consultar o status.');
+            this.actionFeedback.set('Não há instâncias cadastradas para atualizar o status.');
             return;
         }
 
@@ -635,58 +634,22 @@ export class InstancesPage implements OnInit, OnDestroy {
         this.refreshProgressVisible.set(true);
         this.refreshCancellationRequested.set(false);
         this.refreshProgressCount.set(0);
-        this.refreshProgressTotal.set(enabledInstances.length);
-        this.refreshProgressMessage.set('Iniciando consulta dos status...');
+        this.refreshProgressTotal.set(0);
+        this.refreshProgressMessage.set('Consultando os compartimentos e atualizando os status...');
         this.refreshCurrentInstanceName.set(null);
         this.error.set(null);
         this.actionFeedback.set(null);
 
-        let successCount = 0;
-        let failedCount = 0;
-
-        for (const instance of enabledInstances) {
-            if (this.refreshCancellationRequested()) {
-                break;
+        this.api.refreshInstanceStatuses().subscribe({
+            next: (summary) => this.handleRefreshSummary(summary),
+            error: (response: { error?: ApiErrorResponse }) => {
+                this.refreshCurrentInstanceName.set(null);
+                this.refreshProgressVisible.set(false);
+                this.refreshingStatuses.set(false);
+                this.actionFeedbackSeverity.set('error');
+                this.actionFeedback.set(response.error?.detail ?? 'Não foi possível atualizar os status das instâncias.');
             }
-            this.refreshCurrentInstanceName.set(instance.name);
-            this.refreshProgressMessage.set(`Consultando o status de ${instance.name}...`);
-
-            try {
-                const execution = await firstValueFrom(this.api.getInstanceStatus(instance.id));
-                if (execution.status === 'failed') {
-                    failedCount += 1;
-                } else {
-                    successCount += 1;
-                }
-            } catch {
-                failedCount += 1;
-            } finally {
-                this.refreshProgressCount.set(this.refreshProgressCount() + 1);
-            }
-
-            if (this.refreshCancellationRequested()) {
-                break;
-            }
-        }
-
-        this.refreshCurrentInstanceName.set(null);
-        this.refreshProgressMessage.set('Atualizando a listagem das instâncias...');
-        this.refreshProgressVisible.set(false);
-        this.refreshingStatuses.set(false);
-        this.loadInstances();
-
-        if (this.refreshCancellationRequested()) {
-            this.actionFeedbackSeverity.set('error');
-            this.actionFeedback.set(`Atualização cancelada após ${this.refreshProgressCount()} instância(s) processada(s).`);
-            return;
-        }
-
-        this.actionFeedbackSeverity.set(failedCount > 0 ? 'error' : 'success');
-        if (failedCount > 0) {
-            this.actionFeedback.set(`Consulta concluída: ${successCount} com sucesso e ${failedCount} com falha.`);
-        } else {
-            this.actionFeedback.set(`Consulta concluída com sucesso para ${successCount} instância(s).`);
-        }
+        });
     }
 
     confirmAutomaticRegistration(): void {
@@ -930,6 +893,30 @@ export class InstancesPage implements OnInit, OnDestroy {
                 this.markRefreshingRow(instance.id, false);
             }
         });
+    }
+
+    private handleRefreshSummary(summary: InstanceStatusRefreshModel): void {
+        this.refreshProgressTotal.set(summary.total_compartments);
+        this.refreshProgressCount.set(summary.processed_compartments);
+        const failedCompartment = summary.compartments.find((item) => item.failed > 0);
+        const lastProcessedCompartment = summary.compartments.length > 0 ? summary.compartments[summary.compartments.length - 1] : null;
+        this.refreshCurrentInstanceName.set(failedCompartment?.compartment_name ?? lastProcessedCompartment?.compartment_name ?? null);
+        this.refreshProgressMessage.set('Atualizando a listagem das instâncias...');
+        this.refreshProgressVisible.set(false);
+        this.refreshingStatuses.set(false);
+        this.loadInstances();
+
+        this.actionFeedbackSeverity.set(summary.failed > 0 ? 'error' : 'success');
+        if (summary.failed > 0) {
+            this.actionFeedback.set(
+                `Atualização concluída: ${summary.updated} alterada(s), ${summary.unchanged} sem alteração e ${summary.failed} compartimento(s) com falha.`
+            );
+            return;
+        }
+
+        this.actionFeedback.set(
+            `Atualização concluída: ${summary.updated} alterada(s), ${summary.unchanged} sem alteração em ${summary.processed_compartments} compartimento(s).`
+        );
     }
 
     private handleInstanceAction(instanceId: string, action: 'start' | 'stop'): void {
