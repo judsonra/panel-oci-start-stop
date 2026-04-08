@@ -49,6 +49,7 @@ describe('InstancesPage', () => {
             'startInstance',
             'stopInstance',
             'getInstanceStatus',
+            'refreshInstanceStatuses',
             'startImportAllCompartmentsInstancesJob',
             'getImportAllCompartmentsInstancesJob'
         ]);
@@ -105,6 +106,36 @@ describe('InstancesPage', () => {
                 source: 'manual',
                 status: 'success',
                 started_at: '2026-03-12T00:00:00Z'
+            })
+        );
+        apiService.refreshInstanceStatuses.and.returnValue(
+            of({
+                total_compartments: 2,
+                processed_compartments: 2,
+                matched_instances: 1,
+                updated: 1,
+                unchanged: 0,
+                failed: 0,
+                compartments: [
+                    {
+                        compartment_ocid: 'ocid1.compartment.oc1..aaaa',
+                        compartment_name: 'Compartment A',
+                        total_oci_instances: 1,
+                        matched_instances: 1,
+                        updated: 1,
+                        unchanged: 0,
+                        failed: 0
+                    },
+                    {
+                        compartment_ocid: 'ocid1.compartment.oc1..bbbb',
+                        compartment_name: 'Compartment B',
+                        total_oci_instances: 1,
+                        matched_instances: 0,
+                        updated: 0,
+                        unchanged: 0,
+                        failed: 0
+                    }
+                ]
             })
         );
         apiService.startImportAllCompartmentsInstancesJob.and.returnValue(
@@ -344,6 +375,7 @@ describe('InstancesPage', () => {
         component.openRefreshConfirmation();
 
         expect(component.refreshConfirmationVisible()).toBeTrue();
+        expect(apiService.refreshInstanceStatuses).not.toHaveBeenCalled();
         expect(apiService.getInstanceStatus).not.toHaveBeenCalled();
     });
 
@@ -358,7 +390,7 @@ describe('InstancesPage', () => {
         expect(refreshButton.className).toContain('p-button-loading');
     });
 
-    it('refreshes only enabled instances sequentially and shows progress summary', async () => {
+    it('refreshes registered instances in batch and shows progress summary', () => {
         component.instances.set([
             listedInstances[0],
             {
@@ -372,30 +404,23 @@ describe('InstancesPage', () => {
             }
         ]);
 
-        await component.confirmRefreshStatuses();
+        component.confirmRefreshStatuses();
 
-        expect(apiService.getInstanceStatus).toHaveBeenCalledTimes(1);
-        expect(component.refreshProgressCount()).toBe(1);
-        expect(component.actionFeedback()).toContain('Consulta concluída com sucesso');
+        expect(apiService.refreshInstanceStatuses).toHaveBeenCalled();
+        expect(apiService.getInstanceStatus).not.toHaveBeenCalled();
+        expect(component.refreshProgressCount()).toBe(2);
+        expect(component.refreshProgressTotal()).toBe(2);
+        expect(component.actionFeedback()).toContain('Atualização concluída: 1 alterada');
     });
 
-    it('shows feedback when there are no enabled instances to refresh', async () => {
-        component.instances.set([
-            {
-                id: 'instance-2',
-                name: 'Desabilitada',
-                ocid: 'ocid1.instance.oc1..disabled',
-                compartment_id: 'compartment-1',
-                enabled: false,
-                created_at: '2026-03-12T00:00:00Z',
-                updated_at: '2026-03-12T00:00:00Z'
-            }
-        ]);
+    it('shows feedback when there are no instances to refresh', () => {
+        component.instances.set([]);
 
-        await component.confirmRefreshStatuses();
+        component.confirmRefreshStatuses();
 
+        expect(apiService.refreshInstanceStatuses).not.toHaveBeenCalled();
         expect(apiService.getInstanceStatus).not.toHaveBeenCalled();
-        expect(component.actionFeedback()).toBe('Não há instâncias habilitadas para consultar o status.');
+        expect(component.actionFeedback()).toBe('Não há instâncias cadastradas para atualizar o status.');
     });
 
     it('runs automatic registration as a job and stores the summary result', () => {

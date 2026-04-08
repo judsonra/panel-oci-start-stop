@@ -70,6 +70,27 @@ export interface ExecutionModel {
     finished_at?: string | null;
 }
 
+export interface InstanceStatusRefreshCompartmentModel {
+    compartment_ocid: string;
+    compartment_name: string;
+    total_oci_instances: number;
+    matched_instances: number;
+    updated: number;
+    unchanged: number;
+    failed: number;
+    message?: string | null;
+}
+
+export interface InstanceStatusRefreshModel {
+    total_compartments: number;
+    processed_compartments: number;
+    matched_instances: number;
+    updated: number;
+    unchanged: number;
+    failed: number;
+    compartments: InstanceStatusRefreshCompartmentModel[];
+}
+
 export interface ReportDailyCostModel {
     date: string;
     amount: number;

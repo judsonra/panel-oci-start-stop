@@ -72,6 +72,29 @@ class ImportProgressSnapshot:
 
 
 @dataclass
+class StatusRefreshCompartmentResult:
+    compartment_ocid: str
+    compartment_name: str
+    total_oci_instances: int
+    matched_instances: int
+    updated: int
+    unchanged: int
+    failed: int
+    message: str | None = None
+
+
+@dataclass
+class StatusRefreshResult:
+    total_compartments: int
+    processed_compartments: int
+    matched_instances: int
+    updated: int
+    unchanged: int
+    failed: int
+    compartments: list[StatusRefreshCompartmentResult]
+
+
+@dataclass
 class InstanceImportPreview:
     name: str
     ocid: str
@@ -472,6 +495,94 @@ class InstanceService:
             result.failed,
         )
         return result
+
+    def refresh_statuses_by_compartment(self) -> StatusRefreshResult:
+        compartments = [item for item in self.compartments.list() if item.active]
+        compartment_ids = {item.id for item in compartments}
+        local_instances = [item for item in self.instances.list() if item.compartment_id in compartment_ids]
+        instances_by_compartment_id: dict[str, list[Instance]] = {}
+        for instance in local_instances:
+            if instance.compartment_id is None:
+                continue
+            instances_by_compartment_id.setdefault(instance.compartment_id, []).append(instance)
+
+        results: list[StatusRefreshCompartmentResult] = []
+        processed_compartments = 0
+        matched_instances = 0
+        updated = 0
+        unchanged = 0
+        failed = 0
+
+        for compartment in compartments:
+            try:
+                oci_instances = self.oci_service.list_instances_by_compartment(compartment.ocid)
+            except RuntimeError as exc:
+                processed_compartments += 1
+                failed += 1
+                results.append(
+                    StatusRefreshCompartmentResult(
+                        compartment_ocid=compartment.ocid,
+                        compartment_name=compartment.name,
+                        total_oci_instances=0,
+                        matched_instances=0,
+                        updated=0,
+                        unchanged=0,
+                        failed=1,
+                        message=str(exc),
+                    )
+                )
+                continue
+
+            state_by_ocid = {
+                item.ocid: item.lifecycle_state
+                for item in oci_instances
+                if item.lifecycle_state is not None
+            }
+            local_compartment_instances = instances_by_compartment_id.get(compartment.id, [])
+            compartment_matched = 0
+            compartment_updated = 0
+            compartment_unchanged = 0
+
+            for instance in local_compartment_instances:
+                if instance.ocid not in state_by_ocid:
+                    continue
+                compartment_matched += 1
+                next_state = state_by_ocid[instance.ocid]
+                if instance.last_known_state != next_state:
+                    instance.last_known_state = next_state
+                    self.session.add(instance)
+                    compartment_updated += 1
+                else:
+                    compartment_unchanged += 1
+
+            if compartment_updated > 0:
+                self.session.commit()
+
+            processed_compartments += 1
+            matched_instances += compartment_matched
+            updated += compartment_updated
+            unchanged += compartment_unchanged
+            results.append(
+                StatusRefreshCompartmentResult(
+                    compartment_ocid=compartment.ocid,
+                    compartment_name=compartment.name,
+                    total_oci_instances=len(oci_instances),
+                    matched_instances=compartment_matched,
+                    updated=compartment_updated,
+                    unchanged=compartment_unchanged,
+                    failed=0,
+                )
+            )
+
+        return StatusRefreshResult(
+            total_compartments=len(compartments),
+            processed_compartments=processed_compartments,
+            matched_instances=matched_instances,
+            updated=updated,
+            unchanged=unchanged,
+            failed=failed,
+            compartments=results,
+        )
 
     def _upsert_imported_instance(
         self,

@@ -158,6 +158,23 @@ describe('ApiService', () => {
         });
     });
 
+    it('uses the backend api prefix for batch instance status refresh', () => {
+        service.refreshInstanceStatuses().subscribe();
+
+        const request = httpMock.expectOne('http://localhost:8000/api/instances/status-refresh');
+        expect(request.request.method).toBe('POST');
+        expect(request.request.body).toEqual({});
+        request.flush({
+            total_compartments: 2,
+            processed_compartments: 2,
+            matched_instances: 3,
+            updated: 2,
+            unchanged: 1,
+            failed: 0,
+            compartments: []
+        });
+    });
+
     it('uses the backend api prefix for deskmanager catalog and ticket endpoints', () => {
         service.listDeskManagerUsers().subscribe();
         service.listDeskManagerCategories('vpn').subscribe();

@@ -54,6 +54,7 @@ from app.schemas.instance import (
     InstanceImportCreate,
     InstanceImportPreviewRead,
     InstanceRead,
+    InstanceStatusRefreshRead,
     InstanceUpdate,
     InstanceVnicRead,
     VnicDetailsRead,
@@ -615,6 +616,14 @@ def get_status(
 ) -> ExecutionLogRead:
     execution = service.get_status(instance_id)
     return ExecutionLogRead.model_validate(execution).model_copy(update={"instance_state": execution.instance.last_known_state})
+
+
+@router.post("/instances/status-refresh", response_model=InstanceStatusRefreshRead)
+def refresh_instance_statuses(
+    _: CurrentUser = Depends(require_permission("instances.view")),
+    service: InstanceService = Depends(get_instance_service),
+) -> InstanceStatusRefreshRead:
+    return InstanceStatusRefreshRead(**asdict(service.refresh_statuses_by_compartment()))
 
 
 @router.get("/schedules", response_model=list[ScheduleRead])

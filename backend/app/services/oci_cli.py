@@ -48,6 +48,7 @@ class OCICompartmentSummary:
 class OCIInstanceSummary:
     name: str
     ocid: str
+    lifecycle_state: str | None
     vcpu: float | None
     memory_gbs: float | None
     oci_created_at: datetime | None
@@ -334,7 +335,7 @@ class OCIService:
                 compartment_ocid,
                 "--all",
                 "--query",
-                'data[*].{nome:"display-name", id:"id", vcpus:"shape-config"."vcpus", memoria:"shape-config"."memory-in-gbs", criadoEm:"time-created"}',
+                'data[*].{nome:"display-name", id:"id", lifecycleState:"lifecycle-state", vcpus:"shape-config"."vcpus", memoria:"shape-config"."memory-in-gbs", criadoEm:"time-created"}',
                 "--profile",
                 self.settings.oci_cli_profile,
                 "--output",
@@ -360,6 +361,7 @@ class OCIService:
                 OCIInstanceSummary(
                     name=name,
                     ocid=ocid,
+                    lifecycle_state=item.get("lifecycleState") if isinstance(item.get("lifecycleState"), str) else None,
                     vcpu=self._to_float(item.get("vcpus")),
                     memory_gbs=self._to_float(item.get("memoria")),
                     oci_created_at=self._parse_datetime(item.get("criadoEm")),

@@ -152,3 +152,24 @@ class ImportInstancesJobStatusRead(BaseModel):
     current_instance_name: str | None = None
     result: CompartmentInstancesImportRead | None = None
     error: str | None = None
+
+
+class InstanceStatusRefreshCompartmentRead(BaseModel):
+    compartment_ocid: str
+    compartment_name: str
+    total_oci_instances: int
+    matched_instances: int
+    updated: int
+    unchanged: int
+    failed: int
+    message: str | None = None
+
+
+class InstanceStatusRefreshRead(BaseModel):
+    total_compartments: int
+    processed_compartments: int
+    matched_instances: int
+    updated: int
+    unchanged: int
+    failed: int
+    compartments: list[InstanceStatusRefreshCompartmentRead]
