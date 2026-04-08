@@ -43,7 +43,7 @@ def test_is_due_one_time_schedule(override_session):
     assert service.is_due(schedule, datetime.now(timezone.utc)) is True
 
 
-def test_is_due_recurring_prevents_duplicate_same_minute(override_session):
+def test_is_due_weekly_prevents_duplicate_same_minute(override_session):
     instance = Instance(name="VM", ocid="ocid1.instance.oc1.sa-saopaulo-1.schedule2", enabled=True)
     override_session.add(instance)
     override_session.commit()
@@ -52,7 +52,7 @@ def test_is_due_recurring_prevents_duplicate_same_minute(override_session):
     schedule = Schedule(
         target_type=ScheduleTargetType.instance,
         instance_id=instance.id,
-        type=ScheduleType.recurring,
+        type=ScheduleType.weekly,
         action=ScheduleAction.stop,
         days_of_week=[now.weekday()],
         time_utc="14:30",
@@ -95,7 +95,7 @@ def test_list_schedules_route_returns_instance_name(override_session):
     schedule = Schedule(
         target_type=ScheduleTargetType.instance,
         instance_id=instance.id,
-        type=ScheduleType.recurring,
+        type=ScheduleType.weekly,
         action=ScheduleAction.start,
         days_of_week=[1, 2, 3],
         time_utc="14:30",
@@ -123,7 +123,7 @@ def test_process_due_schedules_triggers_restart(override_session):
     schedule = Schedule(
         target_type=ScheduleTargetType.instance,
         instance_id=instance.id,
-        type=ScheduleType.recurring,
+        type=ScheduleType.weekly,
         action=ScheduleAction.restart,
         days_of_week=[now.weekday()],
         time_utc="10:15",
@@ -151,7 +151,7 @@ def test_process_due_group_schedule_triggers_all_enabled_instances(override_sess
     schedule = Schedule(
         target_type=ScheduleTargetType.group,
         group_id=group.id,
-        type=ScheduleType.recurring,
+        type=ScheduleType.weekly,
         action=ScheduleAction.stop,
         days_of_week=[now.weekday()],
         time_utc="10:15",
@@ -167,3 +167,73 @@ def test_process_due_group_schedule_triggers_all_enabled_instances(override_sess
         ("stop", instance_a.id, ExecutionSource.schedule),
         ("stop", instance_b.id, ExecutionSource.schedule),
     ]
+
+
+def test_is_due_monthly_schedule(override_session):
+    instance = Instance(name="VM", ocid="ocid1.instance.oc1.sa-saopaulo-1.schedule9", enabled=True)
+    override_session.add(instance)
+    override_session.commit()
+    override_session.refresh(instance)
+    now = datetime(2026, 4, 15, 9, 45, tzinfo=timezone.utc)
+    schedule = Schedule(
+        target_type=ScheduleTargetType.instance,
+        instance_id=instance.id,
+        type=ScheduleType.monthly,
+        action=ScheduleAction.start,
+        days_of_month=[1, 15, 30],
+        time_utc="09:45",
+        enabled=True,
+    )
+    override_session.add(schedule)
+    override_session.commit()
+    stub = StubInstanceService()
+    service = ScheduleService(override_session, stub)  # type: ignore[arg-type]
+
+    assert service.is_due(schedule, now) is True
+
+
+def test_is_due_monthly_schedule_skips_missing_day(override_session):
+    instance = Instance(name="VM", ocid="ocid1.instance.oc1.sa-saopaulo-1.schedule10", enabled=True)
+    override_session.add(instance)
+    override_session.commit()
+    override_session.refresh(instance)
+    now = datetime(2026, 4, 30, 9, 45, tzinfo=timezone.utc)
+    schedule = Schedule(
+        target_type=ScheduleTargetType.instance,
+        instance_id=instance.id,
+        type=ScheduleType.monthly,
+        action=ScheduleAction.start,
+        days_of_month=[31],
+        time_utc="09:45",
+        enabled=True,
+    )
+    override_session.add(schedule)
+    override_session.commit()
+    stub = StubInstanceService()
+    service = ScheduleService(override_session, stub)  # type: ignore[arg-type]
+
+    assert service.is_due(schedule, now) is False
+
+
+def test_process_due_monthly_schedule_triggers_restart(override_session):
+    instance = Instance(name="VM", ocid="ocid1.instance.oc1.sa-saopaulo-1.schedule11", enabled=True)
+    override_session.add(instance)
+    override_session.commit()
+    override_session.refresh(instance)
+    now = datetime(2026, 4, 20, 11, 5, tzinfo=timezone.utc)
+    schedule = Schedule(
+        target_type=ScheduleTargetType.instance,
+        instance_id=instance.id,
+        type=ScheduleType.monthly,
+        action=ScheduleAction.restart,
+        days_of_month=[20],
+        time_utc="11:05",
+        enabled=True,
+    )
+    override_session.add(schedule)
+    override_session.commit()
+    stub = StubInstanceService()
+    service = ScheduleService(override_session, stub)  # type: ignore[arg-type]
+
+    assert service.process_due_schedules(now) == 1
+    assert stub.called == [("restart", instance.id, ExecutionSource.schedule)]

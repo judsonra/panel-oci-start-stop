@@ -44,25 +44,28 @@ describe('SchedulesPage', () => {
         }
     ];
 
-    const schedule: ScheduleModel = {
+    const weeklySchedule: ScheduleModel = {
         id: 'schedule-1',
         target_type: 'instance',
         instance_id: 'instance-1',
         instance_name: 'VM Principal',
-        type: 'recurring',
+        type: 'weekly',
         action: 'restart',
         days_of_week: [0, 1, 2],
+        days_of_month: null,
         time_utc: '14:30',
         enabled: true
     };
 
     beforeEach(async () => {
         apiService = jasmine.createSpyObj<ApiService>('ApiService', ['listSchedules', 'listInstances', 'listGroups', 'createSchedule', 'updateSchedule', 'deleteSchedule']);
-        apiService.listSchedules.and.returnValue(of([schedule]));
+        apiService.listSchedules.and.returnValue(of([weeklySchedule]));
         apiService.listInstances.and.returnValue(of(instances));
         apiService.listGroups.and.returnValue(of(groups));
-        apiService.createSchedule.and.returnValue(of({ ...schedule, id: 'schedule-2', type: 'one_time', action: 'start', run_at_utc: '2026-03-15T13:45:00.000Z', days_of_week: null, time_utc: null }));
-        apiService.updateSchedule.and.returnValue(of({ ...schedule, enabled: false }));
+        apiService.createSchedule.and.returnValue(
+            of({ ...weeklySchedule, id: 'schedule-2', type: 'one_time', action: 'start', run_at_utc: '2026-03-15T13:45:00.000Z', days_of_week: null, days_of_month: null, time_utc: null })
+        );
+        apiService.updateSchedule.and.returnValue(of({ ...weeklySchedule, enabled: false }));
         apiService.deleteSchedule.and.returnValue(of(void 0));
 
         await TestBed.configureTestingModule({
@@ -112,14 +115,24 @@ describe('SchedulesPage', () => {
         component.form.controls.type.setValue('one_time');
 
         expect(component.isOneTime()).toBeTrue();
-        expect(component.isRecurring()).toBeFalse();
+        expect(component.isWeekly()).toBeFalse();
+        expect(component.isMonthly()).toBeFalse();
     });
 
-    it('shows recurring fields only for recurring type', () => {
-        component.form.controls.type.setValue('recurring');
+    it('shows weekly fields only for weekly type', () => {
+        component.form.controls.type.setValue('weekly');
 
-        expect(component.isRecurring()).toBeTrue();
+        expect(component.isWeekly()).toBeTrue();
         expect(component.isOneTime()).toBeFalse();
+        expect(component.isMonthly()).toBeFalse();
+    });
+
+    it('shows monthly fields only for monthly type', () => {
+        component.form.controls.type.setValue('monthly');
+
+        expect(component.isMonthly()).toBeTrue();
+        expect(component.isOneTime()).toBeFalse();
+        expect(component.isWeekly()).toBeFalse();
     });
 
     it('formats typed date digits as dd/mm/yyyy', () => {
@@ -135,9 +148,9 @@ describe('SchedulesPage', () => {
     });
 
     it('rejects invalid 24h time input', () => {
-        component.onRecurringTimeInputChange('29:88');
+        component.onScheduledTimeInputChange('29:88');
 
-        expect(component.recurringTimeInput()).toBe('29:88');
+        expect(component.scheduledTimeInput()).toBe('29:88');
         expect(component.form.controls.time_utc.value).toBeNull();
     });
 
@@ -154,6 +167,7 @@ describe('SchedulesPage', () => {
             run_at_utc: new Date('2026-03-15T00:00:00Z'),
             run_time_utc: new Date('2026-03-15T13:45:00Z'),
             days_of_week: [],
+            days_of_month: [],
             time_utc: null,
             enabled: true
         });
@@ -168,12 +182,13 @@ describe('SchedulesPage', () => {
             enabled: true,
             run_at_utc: '2026-03-15T13:45:00.000Z',
             days_of_week: null,
+            days_of_month: null,
             time_utc: null
         });
         expect(component.activeTab()).toBe(0);
     });
 
-    it('creates a recurring schedule with selected weekdays and 24h time', () => {
+    it('creates a weekly schedule with selected weekdays and 24h time', () => {
         const time = new Date();
         time.setHours(21, 45, 0, 0);
 
@@ -183,11 +198,12 @@ describe('SchedulesPage', () => {
             instance_id: 'instance-2',
             group: null,
             group_id: '',
-            type: 'recurring',
+            type: 'weekly',
             action: 'restart',
             run_at_utc: null,
             run_time_utc: null,
             days_of_week: [6, 0, 2],
+            days_of_month: [],
             time_utc: time,
             enabled: true
         });
@@ -197,17 +213,53 @@ describe('SchedulesPage', () => {
         expect(apiService.createSchedule).toHaveBeenCalledWith({
             target_type: 'instance',
             instance_id: 'instance-2',
-            type: 'recurring',
+            type: 'weekly',
             action: 'restart',
             enabled: true,
             run_at_utc: null,
             days_of_week: [6, 0, 2],
+            days_of_month: null,
             time_utc: '21:45'
         });
     });
 
+    it('creates a monthly schedule with selected month days and time', () => {
+        const time = new Date();
+        time.setHours(7, 30, 0, 0);
+
+        component.form.setValue({
+            target_type: 'instance',
+            instance: instances[0],
+            instance_id: 'instance-1',
+            group: null,
+            group_id: '',
+            type: 'monthly',
+            action: 'stop',
+            run_at_utc: null,
+            run_time_utc: null,
+            days_of_week: [],
+            days_of_month: [1, 15, 31],
+            time_utc: time,
+            enabled: true
+        });
+
+        component.save();
+
+        expect(apiService.createSchedule).toHaveBeenCalledWith({
+            target_type: 'instance',
+            instance_id: 'instance-1',
+            type: 'monthly',
+            action: 'stop',
+            enabled: true,
+            run_at_utc: null,
+            days_of_week: null,
+            days_of_month: [1, 15, 31],
+            time_utc: '07:30'
+        });
+    });
+
     it('loads a schedule into the form for editing and navigates to the form tab', () => {
-        component.editSchedule(schedule);
+        component.editSchedule(weeklySchedule);
 
         expect(component.editingScheduleId()).toBe('schedule-1');
         expect((component.form.controls.instance.value as InstanceModel | null)?.id).toBe('instance-1');
@@ -217,6 +269,27 @@ describe('SchedulesPage', () => {
         expect(component.activeTab()).toBe(1);
     });
 
+    it('loads a monthly schedule into the form for editing', () => {
+        const monthlySchedule: ScheduleModel = {
+            id: 'schedule-3',
+            target_type: 'instance',
+            instance_id: 'instance-1',
+            instance_name: 'VM Principal',
+            type: 'monthly',
+            action: 'stop',
+            days_of_week: null,
+            days_of_month: [5, 20, 31],
+            time_utc: '08:15',
+            enabled: true
+        };
+
+        component.editSchedule(monthlySchedule);
+
+        expect(component.form.controls.type.value).toBe('monthly');
+        expect(component.form.controls.days_of_month.value).toEqual([5, 20, 31]);
+        expect(component.scheduledTimeInput()).toBe('08:15');
+    });
+
     it('filters groups by name for autocomplete', () => {
         component.filterGroups({ query: 'banco', originalEvent: new Event('input') });
 
@@ -224,7 +297,7 @@ describe('SchedulesPage', () => {
         expect(component.groupSuggestions()[0].name).toBe('Grupo Banco');
     });
 
-    it('creates a group schedule with target_type group', () => {
+    it('creates a group weekly schedule with target_type group', () => {
         component.activeTab.set(1);
         component.setCreateTargetTab(1);
         component.form.setValue({
@@ -233,11 +306,12 @@ describe('SchedulesPage', () => {
             instance_id: '',
             group: groups[0],
             group_id: 'group-1',
-            type: 'recurring',
+            type: 'weekly',
             action: 'stop',
             run_at_utc: null,
             run_time_utc: null,
             days_of_week: [0, 2],
+            days_of_month: [],
             time_utc: new Date('2026-03-15T21:30:00Z'),
             enabled: true
         });
@@ -247,11 +321,12 @@ describe('SchedulesPage', () => {
         expect(apiService.createSchedule).toHaveBeenCalledWith({
             target_type: 'group',
             group_id: 'group-1',
-            type: 'recurring',
+            type: 'weekly',
             action: 'stop',
             enabled: true,
             run_at_utc: null,
             days_of_week: [0, 2],
+            days_of_month: null,
             time_utc: '21:30'
         });
     });
@@ -276,7 +351,7 @@ describe('SchedulesPage', () => {
     });
 
     it('runs the edit command from the splitbutton menu', () => {
-        const actions = component.rowMenuActions(schedule);
+        const actions = component.rowMenuActions(weeklySchedule);
 
         actions[0].command?.({ originalEvent: new MouseEvent('click'), item: actions[0] });
 
@@ -284,8 +359,8 @@ describe('SchedulesPage', () => {
         expect(component.activeTab()).toBe(1);
     });
 
-    it('updates the edited schedule and returns to the schedules tab', () => {
-        component.editSchedule(schedule);
+    it('updates the edited weekly schedule and returns to the schedules tab', () => {
+        component.editSchedule(weeklySchedule);
         component.form.patchValue({
             action: 'stop',
             enabled: false
@@ -297,11 +372,12 @@ describe('SchedulesPage', () => {
             target_type: 'instance',
             instance_id: 'instance-1',
             group_id: null,
-            type: 'recurring',
+            type: 'weekly',
             action: 'stop',
             enabled: false,
             run_at_utc: null,
             days_of_week: [0, 1, 2],
+            days_of_month: null,
             time_utc: '14:30'
         });
         expect(component.activeTab()).toBe(0);
@@ -309,7 +385,7 @@ describe('SchedulesPage', () => {
     });
 
     it('clears instance_id when editing and switching the target from instance to group', () => {
-        component.editSchedule(schedule);
+        component.editSchedule(weeklySchedule);
         component.setCreateTargetTab(1);
         component.form.patchValue({
             target_type: 'group',
@@ -323,17 +399,18 @@ describe('SchedulesPage', () => {
             target_type: 'group',
             group_id: 'group-1',
             instance_id: null,
-            type: 'recurring',
+            type: 'weekly',
             action: 'restart',
             enabled: true,
             run_at_utc: null,
             days_of_week: [0, 1, 2],
+            days_of_month: null,
             time_utc: '14:30'
         });
     });
 
     it('returns to the schedules tab when cancelling an edit', () => {
-        component.editSchedule(schedule);
+        component.editSchedule(weeklySchedule);
 
         component.resetForm();
 
@@ -342,14 +419,14 @@ describe('SchedulesPage', () => {
     });
 
     it('toggles a schedule on or off from the splitbutton primary action', () => {
-        component.toggleSchedule(schedule);
+        component.toggleSchedule(weeklySchedule);
 
         expect(apiService.updateSchedule).toHaveBeenCalledWith('schedule-1', { enabled: false });
         expect(component.schedules()[0].enabled).toBeFalse();
     });
 
     it('keeps edit and delete options in the splitbutton menu', () => {
-        const actions = component.rowMenuActions(schedule);
+        const actions = component.rowMenuActions(weeklySchedule);
 
         expect(actions.map((item) => item.label)).toEqual(['Editar', 'Excluir']);
     });
@@ -357,14 +434,14 @@ describe('SchedulesPage', () => {
     it('requests confirmation before deleting a schedule', () => {
         const confirmSpy = spyOn(confirmationService, 'confirm');
 
-        component['confirmDelete'](schedule);
+        component['confirmDelete'](weeklySchedule);
 
         expect(confirmSpy).toHaveBeenCalled();
     });
 
     it('runs the delete command from the splitbutton menu', () => {
         const confirmSpy = spyOn(confirmationService, 'confirm');
-        const actions = component.rowMenuActions(schedule);
+        const actions = component.rowMenuActions(weeklySchedule);
 
         actions[1].command?.({ originalEvent: new MouseEvent('click'), item: actions[1] });
 
@@ -372,7 +449,7 @@ describe('SchedulesPage', () => {
     });
 
     it('deletes a schedule after confirmation', () => {
-        component['deleteSchedule'](schedule);
+        component['deleteSchedule'](weeklySchedule);
 
         expect(apiService.deleteSchedule).toHaveBeenCalledWith('schedule-1');
         expect(component.schedules().length).toBe(0);
@@ -407,31 +484,62 @@ describe('SchedulesPage', () => {
         expect(text).toContain('Hora');
         expect(text).toContain('Hora UTC');
 
-        component.form.controls.type.setValue('recurring');
+        component.form.controls.type.setValue('weekly');
         fixture.detectChanges();
         text = fixture.nativeElement.textContent;
+        expect(text).toContain('Semanal');
         expect(text).toContain('Horário UTC');
+
+        component.form.controls.type.setValue('monthly');
+        fixture.detectChanges();
+        text = fixture.nativeElement.textContent;
+        expect(text).toContain('Mensal');
+        expect(text).toContain('Dias do mês');
     });
 
-    it('shows validation feedback when recurring schedule is missing time', () => {
+    it('shows validation feedback when weekly schedule is missing time', () => {
         component.form.setValue({
             target_type: 'instance',
             instance: instances[0],
             instance_id: 'instance-1',
             group: null,
             group_id: '',
-            type: 'recurring',
+            type: 'weekly',
             action: 'start',
             run_at_utc: null,
             run_time_utc: null,
             days_of_week: [0],
+            days_of_month: [],
             time_utc: null,
             enabled: true
         });
 
         component.save();
 
-        expect(component.feedback()).toBe('Informe o horário UTC do agendamento recorrente.');
+        expect(component.feedback()).toBe('Informe o horário UTC do agendamento semanal.');
+        expect(apiService.createSchedule).not.toHaveBeenCalled();
+    });
+
+    it('shows validation feedback when monthly schedule is missing selected days', () => {
+        component.form.setValue({
+            target_type: 'instance',
+            instance: instances[0],
+            instance_id: 'instance-1',
+            group: null,
+            group_id: '',
+            type: 'monthly',
+            action: 'start',
+            run_at_utc: null,
+            run_time_utc: null,
+            days_of_week: [],
+            days_of_month: [],
+            time_utc: new Date('2026-03-15T13:15:00Z'),
+            enabled: true
+        });
+
+        component.save();
+
+        expect(component.feedback()).toBe('Selecione ao menos um dia do mês.');
         expect(apiService.createSchedule).not.toHaveBeenCalled();
     });
 
@@ -447,6 +555,7 @@ describe('SchedulesPage', () => {
             run_at_utc: new Date('2026-03-15T00:00:00Z'),
             run_time_utc: null,
             days_of_week: [],
+            days_of_month: [],
             time_utc: null,
             enabled: true
         });
@@ -470,6 +579,7 @@ describe('SchedulesPage', () => {
             run_at_utc: new Date('2026-03-15T13:00:00'),
             run_time_utc: new Date('2026-03-15T13:15:00'),
             days_of_week: [],
+            days_of_month: [],
             time_utc: null,
             enabled: true
         });
@@ -491,6 +601,7 @@ describe('SchedulesPage', () => {
             run_at_utc: new Date('2026-03-15T13:00:00'),
             run_time_utc: new Date('2026-03-15T13:15:00'),
             days_of_week: [],
+            days_of_month: [],
             time_utc: null,
             enabled: true
         });
@@ -514,6 +625,7 @@ describe('SchedulesPage', () => {
             run_at_utc: new Date('2026-03-15T00:00:00Z'),
             run_time_utc: new Date('2026-03-15T13:45:00Z'),
             days_of_week: [],
+            days_of_month: [],
             time_utc: null,
             enabled: true
         });
@@ -521,5 +633,31 @@ describe('SchedulesPage', () => {
         component.save();
 
         expect(component.feedback()).toBe('Selecione um grupo cadastrado.');
+    });
+
+    it('toggles and clears month day selections', () => {
+        component.form.controls.type.setValue('monthly');
+
+        component.toggleMonthDay(5);
+        component.toggleMonthDay(20);
+
+        expect(component.form.controls.days_of_month.value).toEqual([5, 20]);
+        expect(component.isMonthDaySelected(5)).toBeTrue();
+
+        component.clearMonthDays();
+
+        expect(component.form.controls.days_of_month.value).toEqual([]);
+    });
+
+    it('formats monthly execution labels', () => {
+        expect(
+            component.executionLabel({
+                ...weeklySchedule,
+                type: 'monthly',
+                days_of_week: null,
+                days_of_month: [1, 15, 31],
+                time_utc: '08:00'
+            })
+        ).toBe('Dias 1, 15, 31 - 08:00');
     });
 });

@@ -20,7 +20,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { ApiService } from '@/app/core/api.service';
 import { GroupModel, InstanceModel, ScheduleModel } from '@/app/core/models';
 
-type ScheduleTypeValue = 'one_time' | 'recurring';
+type ScheduleTypeValue = 'one_time' | 'weekly' | 'monthly';
 type ScheduleActionValue = 'start' | 'stop' | 'restart';
 
 interface DayOption {
@@ -41,6 +41,7 @@ interface ScheduleFormValue {
     run_at_utc: Date | null;
     run_time_utc: Date | null;
     days_of_week: number[] | null;
+    days_of_month: number[] | null;
     time_utc: Date | null;
     enabled: boolean | null;
 }
@@ -56,6 +57,7 @@ interface NormalizedScheduleFormValue {
     run_at_utc: Date | null;
     run_time_utc: Date | null;
     days_of_week: number[];
+    days_of_month: number[];
     time_utc: Date | null;
     enabled: boolean;
 }
@@ -82,6 +84,29 @@ interface NormalizedScheduleFormValue {
         TooltipModule
     ],
     providers: [ConfirmationService],
+    styles: [
+        `
+            .month-days-panel {
+                display: grid;
+                gap: 0.75rem;
+            }
+
+            .month-days-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(3.25rem, 1fr));
+                gap: 0.5rem;
+            }
+
+            .month-day-button {
+                min-width: 0;
+            }
+
+            .month-day-actions {
+                display: flex;
+                justify-content: flex-end;
+            }
+        `
+    ],
     template: `
         <section class="page-header">
             <div>
@@ -127,7 +152,7 @@ interface NormalizedScheduleFormValue {
                                                 tooltipPosition="top"
                                             ></i>
                                         </td>
-                                        <td>{{ schedule.type === 'one_time' ? 'Execução única' : 'Recorrente' }}</td>
+                                        <td>{{ typeLabel(schedule.type) }}</td>
                                         <td class="schedule-action-column">{{ schedule.action | uppercase }}</td>
                                         <td class="schedule-execution-column">{{ executionLabel(schedule) }}</td>
                                         <td class="schedule-status-cell schedule-status-column">
@@ -200,7 +225,8 @@ interface NormalizedScheduleFormValue {
                                 <span>Tipo</span>
                                 <select formControlName="type" (change)="onTypeChange()">
                                     <option value="one_time">Execução única</option>
-                                    <option value="recurring">Recorrente</option>
+                                    <option value="weekly">Semanal</option>
+                                    <option value="monthly">Mensal</option>
                                 </select>
                             </label>
 
@@ -242,7 +268,7 @@ interface NormalizedScheduleFormValue {
                                 </label>
                             }
 
-                            @if (isRecurring()) {
+                            @if (isWeekly()) {
                                 <label>
                                     <span>Dias da semana</span>
                                     <p-multiselect
@@ -256,12 +282,34 @@ interface NormalizedScheduleFormValue {
                                 </label>
                             }
 
-                            @if (isRecurring()) {
+                            @if (isMonthly()) {
+                                <div class="month-days-panel">
+                                    <span>Dias do mês</span>
+                                    <div class="month-days-grid">
+                                        @for (day of monthDayOptions; track day) {
+                                            <button
+                                                pButton
+                                                type="button"
+                                                class="month-day-button"
+                                                [label]="day.toString()"
+                                                [severity]="isMonthDaySelected(day) ? 'primary' : 'secondary'"
+                                                [outlined]="!isMonthDaySelected(day)"
+                                                (click)="toggleMonthDay(day)"
+                                            ></button>
+                                        }
+                                    </div>
+                                    <div class="month-day-actions">
+                                        <button pButton type="button" label="Limpar" severity="secondary" [text]="true" (click)="clearMonthDays()"></button>
+                                    </div>
+                                </div>
+                            }
+
+                            @if (isWeekly() || isMonthly()) {
                                 <label>
                                     <span>Horário UTC</span>
                                     <p-inputmask
-                                        [ngModel]="recurringTimeInput()"
-                                        (ngModelChange)="onRecurringTimeInputChange($event)"
+                                        [ngModel]="scheduledTimeInput()"
+                                        (ngModelChange)="onScheduledTimeInputChange($event)"
                                         [ngModelOptions]="{ standalone: true }"
                                         mask="99:99"
                                         slotChar="hh:mm"
@@ -316,7 +364,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
     readonly createTargetTab = signal<ScheduleTargetTabValue>(0);
     readonly currentUtcDate = signal(new Date());
     readonly runTimeInput = signal('');
-    readonly recurringTimeInput = signal('');
+    readonly scheduledTimeInput = signal('');
     readonly utcClockDisplay = computed(() =>
         this.currentUtcDate().toLocaleTimeString('pt-BR', {
             timeZone: 'UTC',
@@ -337,6 +385,8 @@ export class SchedulesPage implements OnInit, OnDestroy {
         { label: 'Sábado', value: 5 }
     ];
 
+    readonly monthDayOptions = Array.from({ length: 31 }, (_, index) => index + 1);
+
     readonly form = this.formBuilder.group({
         target_type: this.formBuilder.control<'instance' | 'group'>('instance', Validators.required),
         instance: this.formBuilder.control<InstanceModel | string | null>(null),
@@ -348,6 +398,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
         run_at_utc: this.formBuilder.control<Date | null>(null),
         run_time_utc: this.formBuilder.control<Date | null>(null),
         days_of_week: this.formBuilder.control<number[]>([], { nonNullable: true }),
+        days_of_month: this.formBuilder.control<number[]>([], { nonNullable: true }),
         time_utc: this.formBuilder.control<Date | null>(null),
         enabled: this.formBuilder.control(true, { nonNullable: true })
     });
@@ -380,8 +431,12 @@ export class SchedulesPage implements OnInit, OnDestroy {
         return this.form.controls.type.value === 'one_time';
     }
 
-    isRecurring(): boolean {
-        return this.form.controls.type.value === 'recurring';
+    isWeekly(): boolean {
+        return this.form.controls.type.value === 'weekly';
+    }
+
+    isMonthly(): boolean {
+        return this.form.controls.type.value === 'monthly';
     }
 
     loadSchedules(): void {
@@ -430,10 +485,14 @@ export class SchedulesPage implements OnInit, OnDestroy {
 
     onTypeChange(): void {
         if (this.isOneTime()) {
-            this.form.patchValue({ days_of_week: [], time_utc: null });
-            this.recurringTimeInput.set('');
-        } else {
+            this.form.patchValue({ days_of_week: [], days_of_month: [], time_utc: null });
+            this.scheduledTimeInput.set('');
+        } else if (this.isWeekly()) {
             this.form.patchValue({ run_at_utc: null, run_time_utc: null });
+            this.runTimeInput.set('');
+            this.form.patchValue({ days_of_month: [] });
+        } else {
+            this.form.patchValue({ run_at_utc: null, run_time_utc: null, days_of_week: [] });
             this.runTimeInput.set('');
         }
         this.scheduleDateInputBinding();
@@ -512,12 +571,25 @@ export class SchedulesPage implements OnInit, OnDestroy {
                   })
                 : '-';
         }
+        if (schedule.type === 'weekly') {
+            const days = (schedule.days_of_week ?? [])
+                .map((day) => this.dayOptions.find((option) => option.value === day)?.label.slice(0, 3))
+                .filter(Boolean)
+                .join(', ');
+            return [days, schedule.time_utc].filter(Boolean).join(' - ') || '-';
+        }
+        const days = (schedule.days_of_month ?? []).join(', ');
+        return [days ? `Dias ${days}` : '', schedule.time_utc].filter(Boolean).join(' - ') || '-';
+    }
 
-        const days = (schedule.days_of_week ?? [])
-            .map((day) => this.dayOptions.find((option) => option.value === day)?.label.slice(0, 3))
-            .filter(Boolean)
-            .join(', ');
-        return [days, schedule.time_utc].filter(Boolean).join(' - ') || '-';
+    typeLabel(type: ScheduleTypeValue): string {
+        if (type === 'one_time') {
+            return 'Execução única';
+        }
+        if (type === 'weekly') {
+            return 'Semanal';
+        }
+        return 'Mensal';
     }
 
     scheduleDisplayName(schedule: ScheduleModel): string {
@@ -546,11 +618,12 @@ export class SchedulesPage implements OnInit, OnDestroy {
             run_at_utc: runAtUtc,
             run_time_utc: runAtUtc,
             days_of_week: schedule.days_of_week ?? [],
+            days_of_month: schedule.days_of_month ?? [],
             time_utc: schedule.time_utc ? this.fromHourMinute(schedule.time_utc) : null,
             enabled: schedule.enabled
         });
         this.runTimeInput.set(runAtUtc ? this.toHourMinute(runAtUtc) : '');
-        this.recurringTimeInput.set(schedule.time_utc ?? '');
+        this.scheduledTimeInput.set(schedule.time_utc ?? '');
         this.instanceSuggestions.set(this.instances());
         this.groupSuggestions.set(this.groups());
         this.createTargetTab.set(schedule.target_type === 'group' ? 1 : 0);
@@ -572,11 +645,12 @@ export class SchedulesPage implements OnInit, OnDestroy {
             run_at_utc: null,
             run_time_utc: null,
             days_of_week: [],
+            days_of_month: [],
             time_utc: null,
             enabled: true
         });
         this.runTimeInput.set('');
-        this.recurringTimeInput.set('');
+        this.scheduledTimeInput.set('');
         this.instanceSuggestions.set(this.instances());
         this.groupSuggestions.set(this.groups());
         this.createTargetTab.set(0);
@@ -680,14 +754,28 @@ export class SchedulesPage implements OnInit, OnDestroy {
             return true;
         }
 
-        if ((this.form.controls.days_of_week.value ?? []).length === 0) {
+        if (this.isWeekly()) {
+            if ((this.form.controls.days_of_week.value ?? []).length === 0) {
+                this.feedbackSeverity.set('error');
+                this.feedback.set('Selecione ao menos um dia da semana.');
+                return false;
+            }
+            if (!this.form.controls.time_utc.value) {
+                this.feedbackSeverity.set('error');
+                this.feedback.set('Informe o horário UTC do agendamento semanal.');
+                return false;
+            }
+            return true;
+        }
+
+        if ((this.form.controls.days_of_month.value ?? []).length === 0) {
             this.feedbackSeverity.set('error');
-            this.feedback.set('Selecione ao menos um dia da semana.');
+            this.feedback.set('Selecione ao menos um dia do mês.');
             return false;
         }
         if (!this.form.controls.time_utc.value) {
             this.feedbackSeverity.set('error');
-            this.feedback.set('Informe o horário UTC do agendamento recorrente.');
+            this.feedback.set('Informe o horário UTC do agendamento mensal.');
             return false;
         }
         return true;
@@ -740,10 +828,24 @@ export class SchedulesPage implements OnInit, OnDestroy {
         this.form.controls.run_time_utc.setValue(this.parseHourMinute(normalized), { emitEvent: false });
     }
 
-    onRecurringTimeInputChange(value: string | null): void {
+    onScheduledTimeInputChange(value: string | null): void {
         const normalized = value ?? '';
-        this.recurringTimeInput.set(normalized);
+        this.scheduledTimeInput.set(normalized);
         this.form.controls.time_utc.setValue(this.parseHourMinute(normalized), { emitEvent: false });
+    }
+
+    toggleMonthDay(day: number): void {
+        const current = this.form.controls.days_of_month.value ?? [];
+        const next = current.includes(day) ? current.filter((item) => item !== day) : [...current, day].sort((a, b) => a - b);
+        this.form.controls.days_of_month.setValue(next);
+    }
+
+    clearMonthDays(): void {
+        this.form.controls.days_of_month.setValue([]);
+    }
+
+    isMonthDaySelected(day: number): boolean {
+        return (this.form.controls.days_of_month.value ?? []).includes(day);
     }
 
     private toUtcDateTimeIso(date: Date, time: Date): string {
@@ -844,6 +946,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
             type: raw.type ?? 'one_time',
             action: raw.action ?? 'start',
             days_of_week: raw.days_of_week ?? [],
+            days_of_month: raw.days_of_month ?? [],
             enabled: raw.enabled ?? true
         };
     }
@@ -880,8 +983,9 @@ export class SchedulesPage implements OnInit, OnDestroy {
             action: raw.action ?? 'start',
             enabled: raw.enabled ?? true,
             run_at_utc: raw.type === 'one_time' && raw.run_at_utc && raw.run_time_utc ? this.toUtcDateTimeIso(raw.run_at_utc, raw.run_time_utc) : null,
-            days_of_week: raw.type === 'recurring' ? raw.days_of_week : null,
-            time_utc: raw.type === 'recurring' && raw.time_utc ? this.toHourMinute(raw.time_utc) : null
+            days_of_week: raw.type === 'weekly' ? raw.days_of_week : null,
+            days_of_month: raw.type === 'monthly' ? raw.days_of_month : null,
+            time_utc: raw.type !== 'one_time' && raw.time_utc ? this.toHourMinute(raw.time_utc) : null
         };
     }
 
