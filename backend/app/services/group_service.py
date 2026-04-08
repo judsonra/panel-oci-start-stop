@@ -6,6 +6,7 @@ from app.models.compartment import Compartment
 from app.models.group import Group
 from app.models.instance import Instance
 from app.repositories.group_repository import GroupRepository
+from app.services.audit_service import AuditService
 
 
 def normalize_group_name(name: str) -> str:
@@ -16,6 +17,7 @@ class GroupService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.groups = GroupRepository(session)
+        self.audit = AuditService(session)
 
     def list_groups(self) -> list[Group]:
         return self.groups.list()
@@ -46,9 +48,19 @@ class GroupService:
         group.instances = self._load_instances(instance_ids)
         return self.groups.save(group)
 
-    def delete_group(self, group_id: str) -> None:
+    def delete_group(self, group_id: str, *, actor_email: str | None = None, actor_user_id: str | None = None) -> None:
         group = self.get_group(group_id)
+        before_data = {"id": group.id, "name": group.name, "instance_ids": [item.id for item in group.instances]}
         self.groups.delete(group)
+        self.audit.log_configuration_event(
+            event_type="group_deleted",
+            entity_type="instance_group",
+            entity_id=before_data["id"],
+            actor_email=actor_email,
+            actor_user_id=actor_user_id,
+            summary=f"Instance group {before_data['name']} deleted",
+            before_data=before_data,
+        )
 
     def list_tree(self) -> list[Compartment]:
         statement = (

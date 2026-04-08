@@ -160,7 +160,7 @@ Reports execution flow:
 - UI: `http://localhost:4200`
 - Official client base: `frontend/`
 - Stack: Angular 21 + PrimeNG 21 + Sakai NG layout
-- At this stage there is no login screen; the application opens directly in the main shell
+- Authentication now supports Microsoft Entra ID redirect and an optional hidden local admin login at `/access`
 
 ### Frontend Structure
 
@@ -235,6 +235,21 @@ The application reads environment variables from `.env` and from `docker-compose
 | `OIDC_AUDIENCE` | `backend` | No | empty | Configures the expected token audience when authentication is enabled. |
 | `OIDC_JWKS_URL` | `backend` | No | empty | Provides the JWKS endpoint used to validate incoming JWT signatures. |
 | `ALLOWED_GROUPS` | `backend` | No | empty | Comma-separated list of identity groups allowed to use the operational backend. |
+| `ENTRA_AUTH_ENABLED` | `backend` | No | `false` | Enables Microsoft Entra ID authentication through OpenID Connect/OAuth 2.0 Authorization Code + PKCE. |
+| `ENTRA_TENANT_ID` | `backend` | No | empty | Optional Entra tenant identifier for operational configuration and documentation alignment. |
+| `ENTRA_CLIENT_ID` | `backend`, `frontend` runtime | No | empty | Public Entra application client ID used during the browser redirect flow. |
+| `ENTRA_AUTHORITY` | `backend`, `frontend` runtime | No | empty | Base Entra authority URL used for authorize, token and logout flows. |
+| `ENTRA_REDIRECT_URI` | `backend`, `frontend` runtime | No | `http://localhost:4200/auth/callback` | Redirect URI registered in Entra and used by the SPA callback flow. |
+| `ENTRA_POST_LOGOUT_REDIRECT_URI` | `backend`, `frontend` runtime | No | `http://localhost:4200/access` | Browser redirect target after a Microsoft logout. |
+| `ENTRA_SCOPES` | `backend`, `frontend` runtime | No | `openid profile email` | Space-separated scopes requested during the Entra login flow. |
+| `ENTRA_JWKS_URL` | `backend` | No | empty | JWKS endpoint used by the backend to validate Entra ID tokens. |
+| `ENTRA_ISSUER` | `backend` | No | empty | Expected issuer claim for validated Entra ID tokens. |
+| `ENTRA_AUDIENCE` | `backend` | No | empty | Expected audience claim for validated Entra ID tokens. |
+| `LOCAL_ADMIN_ENABLED` | `backend` | No | `false` | Enables the hidden local superadmin login exposed at `/access`. |
+| `LOCAL_ADMIN_EMAIL` | `backend` | Yes when `LOCAL_ADMIN_ENABLED=true` | empty | Local superadmin login email. Empty values are rejected when local auth is enabled. |
+| `LOCAL_ADMIN_PASSWORD_HASH` | `backend` | Yes when `LOCAL_ADMIN_ENABLED=true` | empty | Bcrypt or Argon2 password hash for the local superadmin login. |
+| `LOCAL_AUTH_JWT_SECRET` | `backend` | Yes when any app token is issued | empty | Secret used by the backend to sign local application JWTs. |
+| `LOCAL_AUTH_JWT_EXPIRES_MINUTES` | `backend` | No | `480` | Lifetime of locally issued application JWTs in minutes. |
 | `APP_TIMEZONE` | `backend` | No | `UTC` | Defines the application timezone used by scheduling and time-based backend behavior. |
 | `SCHEDULER_POLL_SECONDS` | `backend` | No | `30` | Controls how often the schedule runner checks for due jobs. |
 | `SCHEDULER_ENABLED` | `backend` | No | `true` | Enables or disables the backend scheduler loop at startup. |
@@ -257,7 +272,7 @@ Important mappings:
 
 - `REPORTS_DATABASE_URL` is a Compose-level variable that becomes `DATABASE_URL` inside the `reports` container.
 - `REPORTS_OCI_TENANT_ID` is a Compose-level variable that becomes `OCI_TENANT_ID` inside the `reports` container.
-- `API_BASE_URL` and `REPORTS_API_BASE_URL` are written at container startup into `frontend/public/app-config.js`, then consumed by `ApiService` in the browser.
+- `API_BASE_URL`, `REPORTS_API_BASE_URL`, `ENTRA_AUTH_ENABLED`, `LOCAL_ADMIN_ENABLED`, `ENTRA_AUTHORITY`, `ENTRA_CLIENT_ID`, `ENTRA_REDIRECT_URI`, `ENTRA_POST_LOGOUT_REDIRECT_URI`, and `ENTRA_SCOPES` are written at container startup into `frontend/public/app-config.js`.
 
 ## Frontend Development
 

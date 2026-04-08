@@ -4,6 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterModule } from '@angular/router';
 import { catchError, forkJoin, map, of, switchMap, timer } from 'rxjs';
 import { ApiService } from '@/app/core/api.service';
+import { AuthService } from '@/app/core/auth.service';
 import { TopbarServiceStatusModel } from '@/app/core/models';
 import { LayoutService } from '@/app/layout/service/layout.service';
 
@@ -41,12 +42,23 @@ import { LayoutService } from '@/app/layout/service/layout.service';
                     <i class="pi pi-external-link layout-topbar-status-icon" aria-hidden="true"></i>
                 </a>
             }
+
+            @if (auth.currentUser(); as currentUser) {
+                <div class="layout-topbar-auth">
+                    <span class="layout-topbar-user">{{ currentUser.email || currentUser.subject }}</span>
+                    <button class="layout-topbar-action" type="button" (click)="logout()">
+                        <i class="pi pi-sign-out"></i>
+                        <span>Sair</span>
+                    </button>
+                </div>
+            }
         </div>
     </div>`
 })
 export class AppTopbar {
     readonly layoutService = inject(LayoutService);
     private readonly api = inject(ApiService);
+    readonly auth = inject(AuthService);
     private readonly destroyRef = inject(DestroyRef);
     private readonly backendLabel = 'Backend';
     private readonly reportsLabel = 'Reports';
@@ -90,6 +102,10 @@ export class AppTopbar {
                 this.backendStatus.set(backend);
                 this.reportsStatus.set(reports);
             });
+    }
+
+    logout(): void {
+        void this.auth.logout();
     }
 
     private mapStatus(label: string, status: TopbarServiceStatusModel['status'], docsUrl: string): TopbarServiceStatusModel {

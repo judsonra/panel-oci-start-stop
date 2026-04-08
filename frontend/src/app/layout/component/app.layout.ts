@@ -1,9 +1,11 @@
 import { Component, computed, effect, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { NavigationEnd, Router, RouterModule } from '@angular/router';
 import { AppTopbar } from './app.topbar';
 import { AppSidebar } from './app.sidebar';
 import { AppFooter } from './app.footer';
+import { filter } from 'rxjs';
+import { AuthService } from '@/app/core/auth.service';
 import { LayoutService } from '@/app/layout/service/layout.service';
 
 @Component({
@@ -24,6 +26,8 @@ import { LayoutService } from '@/app/layout/service/layout.service';
 })
 export class AppLayout {
     layoutService = inject(LayoutService);
+    private readonly router = inject(Router);
+    private readonly auth = inject(AuthService);
 
     constructor() {
         effect(() => {
@@ -33,6 +37,11 @@ export class AppLayout {
             } else {
                 document.body.classList.remove('blocked-scroll');
             }
+        });
+
+        this.router.events.pipe(filter((event) => event instanceof NavigationEnd)).subscribe((event) => {
+            const navigation = event as NavigationEnd;
+            void this.auth.recordPageAccess(navigation.urlAfterRedirects);
         });
     }
 
@@ -46,5 +55,5 @@ export class AppLayout {
             'layout-overlay-active': state.overlayMenuActive,
             'layout-mobile-active': state.mobileMenuActive
         };
-    })
+    });
 }
