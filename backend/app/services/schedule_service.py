@@ -105,13 +105,19 @@ class ScheduleService:
             if schedule.last_triggered_at is not None:
                 return False
             return True
-        if schedule.days_of_week is None or schedule.time_utc is None:
+        if schedule.time_utc is None:
             return False
         hour, minute = [int(part) for part in schedule.time_utc.split(":")]
         current_slot = now.replace(second=0, microsecond=0)
-        if now.weekday() not in schedule.days_of_week:
-            return False
         if now.hour != hour or now.minute != minute:
+            return False
+        if schedule.type == ScheduleType.weekly:
+            if schedule.days_of_week is None or now.weekday() not in schedule.days_of_week:
+                return False
+        elif schedule.type == ScheduleType.monthly:
+            if schedule.days_of_month is None or now.day not in schedule.days_of_month:
+                return False
+        else:
             return False
         last_triggered_at = self._ensure_utc(schedule.last_triggered_at)
         if last_triggered_at is not None and last_triggered_at >= current_slot:
@@ -152,6 +158,7 @@ class ScheduleService:
             "action": schedule.action.value,
             "run_at_utc": schedule.run_at_utc.isoformat() if schedule.run_at_utc else None,
             "days_of_week": list(schedule.days_of_week) if schedule.days_of_week else None,
+            "days_of_month": list(schedule.days_of_month) if schedule.days_of_month else None,
             "time_utc": schedule.time_utc,
             "enabled": schedule.enabled,
             "last_triggered_at": schedule.last_triggered_at.isoformat() if schedule.last_triggered_at else None,

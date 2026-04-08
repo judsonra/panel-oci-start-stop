@@ -46,10 +46,11 @@ export interface ScheduleModel {
     instance_name?: string | null;
     group_id?: string | null;
     group_name?: string | null;
-    type: 'one_time' | 'recurring';
+    type: 'one_time' | 'weekly' | 'monthly';
     action: 'start' | 'stop' | 'restart';
     run_at_utc?: string | null;
     days_of_week?: number[] | null;
+    days_of_month?: number[] | null;
     time_utc?: string | null;
     enabled: boolean;
     last_triggered_at?: string | null;
