@@ -331,6 +331,9 @@ export interface AuditAccessLogModel {
     method?: string | null;
     status_code?: number | null;
     message?: string | null;
+    started_at?: string | null;
+    finished_at?: string | null;
+    duration_ms?: number | null;
     created_at: string;
 }
 

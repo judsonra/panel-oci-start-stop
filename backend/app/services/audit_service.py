@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -25,6 +26,9 @@ class AuditService:
         method: str | None = None,
         status_code: int | None = None,
         message: str | None = None,
+        started_at: datetime | None = None,
+        finished_at: datetime | None = None,
+        duration_ms: int | None = None,
     ) -> AuditAccessLog:
         log = AuditAccessLog(
             event_type=event_type,
@@ -37,6 +41,9 @@ class AuditService:
             method=method,
             status_code=status_code,
             message=message,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=duration_ms,
         )
         self.session.add(log)
         self.session.commit()

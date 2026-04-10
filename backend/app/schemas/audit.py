@@ -17,6 +17,9 @@ class AuditAccessLogRead(AppBaseModel):
     method: str | None = None
     status_code: int | None = None
     message: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
     created_at: datetime
 
 
