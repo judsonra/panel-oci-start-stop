@@ -32,7 +32,6 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                 type="button"
                 label="Atualizar"
                 icon="pi pi-refresh"
-                [outlined]="true"
                 [severity]="refreshButtonSeverity()"
                 styleClass="instances-refresh-button"
                 [loading]="refreshButtonLoading()"

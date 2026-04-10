@@ -253,7 +253,7 @@ The application reads environment variables from `.env` and from `docker-compose
 | `APP_TIMEZONE` | `backend` | No | `UTC` | Defines the application timezone used by scheduling and time-based backend behavior. |
 | `SCHEDULER_POLL_SECONDS` | `backend` | No | `30` | Controls how often the schedule runner checks for due jobs. |
 | `SCHEDULER_ENABLED` | `backend` | No | `true` | Enables or disables the backend scheduler loop at startup. |
-| `SCHEDULE_GROUP_MAX_CONCURRENCY` | `backend` | No | `3` | Limits how many instance actions from the same scheduled group can run in parallel during scheduler execution. |
+| `SCHEDULE_GROUP_MAX_CONCURRENCY` | `backend` | No | `10` | Limits how many instance actions from the same scheduled group can run in parallel during scheduler execution. |
 | `CORS_ORIGINS` | `backend`, `reports` | No | `http://localhost:4200,http://127.0.0.1:4200` | Comma-separated list of allowed browser origins for both APIs. |
 | `DESKMANAGER_AUTH_URL` | `backend` | Yes | `https://api.desk.ms/Login/autenticar` | URL used to authenticate against DeskManager before ticket creation. |
 | `DESKMANAGER_TICKETS_URL` | `backend` | Yes | `https://api.desk.ms/Chamados` | URL of the DeskManager ticket creation endpoint. |

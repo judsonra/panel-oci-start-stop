@@ -764,6 +764,15 @@ select {
     font-size: 0.92rem;
 }
 
+.instances-refresh-button.p-button-success:not(:disabled):not(.p-disabled),
+.instances-refresh-button.p-button-success.p-button-loading,
+.instances-refresh-button.p-button-success.p-button-loading:disabled,
+.instances-refresh-button.p-button-success.p-disabled.p-button-loading {
+    background: #dff3e4 !important;
+    border-color: #afd5b8 !important;
+    color: #1d5d3f !important;
+}
+
 .instances-refresh-button.p-button:disabled,
 .instances-refresh-button.p-disabled {
     background: #c9c4bb !important;
@@ -772,15 +781,18 @@ select {
     opacity: 1 !important;
 }
 
-.instances-refresh-button.p-button-success:not(:disabled):not(.p-disabled) {
-    background: var(--app-success) !important;
-    border-color: var(--app-success) !important;
-    color: #fffdf8 !important;
+.instances-refresh-button.p-button-success:not(:disabled):not(.p-disabled):hover,
+.instances-refresh-button.p-button-success.p-button-loading:hover,
+.instances-refresh-button.p-button-success.p-button-loading:disabled:hover,
+.instances-refresh-button.p-button-success.p-disabled.p-button-loading:hover {
+    background: #cfe9d6 !important;
+    border-color: #97c5a3 !important;
 }
 
-.instances-refresh-button.p-button-success:not(:disabled):not(.p-disabled):hover {
-    background: #1d5d3f !important;
-    border-color: #1d5d3f !important;
+.instances-refresh-button .p-button-icon,
+.instances-refresh-button .p-button-label,
+.instances-refresh-button .p-button-loading-icon {
+    color: inherit !important;
 }
 
 .ocid-cell {
