@@ -55,6 +55,7 @@ describe('AuditAccessPage', () => {
     it('loads access logs on init', () => {
         expect(apiService.listAuditAccess).toHaveBeenCalled();
         expect(component.items()).toEqual(logs);
+        expect(component.itemCount()).toBe(2);
     });
 
     it('renders timing fields and legacy fallback values', () => {
@@ -64,5 +65,17 @@ describe('AuditAccessPage', () => {
         expect(text).toContain('/api/instances');
         expect(text).toContain('GET');
         expect(text).toContain('/api/legacy');
+    });
+
+    it('renders an explicit empty state when there are no access logs', async () => {
+        apiService.listAuditAccess.and.returnValue(of([]));
+
+        fixture = TestBed.createComponent(AuditAccessPage);
+        component = fixture.componentInstance;
+        fixture.detectChanges();
+        await fixture.whenStable();
+
+        expect(component.itemCount()).toBe(0);
+        expect(fixture.nativeElement.textContent).toContain('Nenhum registro de acesso encontrado.');
     });
 });

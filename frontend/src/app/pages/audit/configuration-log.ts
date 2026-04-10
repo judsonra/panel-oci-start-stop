@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -24,32 +24,39 @@ import { AuditConfigurationLogModel } from '@/app/core/models';
             <button pButton type="button" label="Filtrar" icon="pi pi-search" (click)="load()"></button>
         </div>
         <div class="table-shell">
-            <p-table [value]="items()" responsiveLayout="scroll">
-                <ng-template pTemplate="header">
-                    <tr>
-                        <th>Quando</th>
-                        <th>Evento</th>
-                        <th>Entidade</th>
-                        <th>Ator</th>
-                        <th>Resumo</th>
-                    </tr>
-                </ng-template>
-                <ng-template pTemplate="body" let-item>
-                    <tr>
-                        <td>{{ item.created_at | date: 'dd/MM/yyyy HH:mm' }}</td>
-                        <td>{{ item.event_type }}</td>
-                        <td>{{ item.entity_type }}</td>
-                        <td>{{ item.actor_email || '-' }}</td>
-                        <td>{{ item.summary }}</td>
-                    </tr>
-                </ng-template>
-            </p-table>
+            @if (itemCount() > 0) {
+                <p-table [value]="tableItems()" responsiveLayout="scroll">
+                    <ng-template pTemplate="header">
+                        <tr>
+                            <th>Quando</th>
+                            <th>Evento</th>
+                            <th>Entidade</th>
+                            <th>Ator</th>
+                            <th>Resumo</th>
+                        </tr>
+                    </ng-template>
+                    <ng-template pTemplate="body" let-item>
+                        <tr>
+                            <td>{{ item.created_at | date: 'dd/MM/yyyy HH:mm' }}</td>
+                            <td>{{ item.event_type }}</td>
+                            <td>{{ item.entity_type }}</td>
+                            <td>{{ item.actor_email || '-' }}</td>
+                            <td>{{ item.summary }}</td>
+                        </tr>
+                    </ng-template>
+                </p-table>
+            } @else if (loaded()) {
+                <p>Nenhum registro de configuração encontrado.</p>
+            }
         </div>
     `
 })
 export class AuditConfigurationPage implements OnInit {
     private readonly api = inject(ApiService);
     readonly items = signal<AuditConfigurationLogModel[]>([]);
+    readonly loaded = signal(false);
+    readonly tableItems = computed(() => [...this.items()]);
+    readonly itemCount = computed(() => this.tableItems().length);
     query = '';
 
     ngOnInit(): void {
@@ -57,6 +64,9 @@ export class AuditConfigurationPage implements OnInit {
     }
 
     load(): void {
-        this.api.listAuditConfigurations({ query: this.query || undefined }).subscribe((items) => this.items.set(items));
+        this.api.listAuditConfigurations({ query: this.query || undefined }).subscribe((items) => {
+            this.items.set(items ?? []);
+            this.loaded.set(true);
+        });
     }
 }
