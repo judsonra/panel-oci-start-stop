@@ -44,6 +44,15 @@ describe('AppMenu', () => {
         expect(instancesGroup?.expanded).toBeTrue();
     });
 
+    it('includes Custo in the dashboard menu and preserves the report route', () => {
+        const dashboardGroup = component.model.find((item) => item.label === 'Dashboard');
+        const labels = (dashboardGroup?.items ?? []).map((item) => item.label);
+        const costItem = (dashboardGroup?.items ?? []).find((item) => item.label === 'Custo');
+
+        expect(labels).toEqual(['Visão Geral', 'Custo']);
+        expect(costItem?.routerLink).toEqual(['/reports/cost-by-compartment']);
+    });
+
     it('includes DeskManager with the criar chamado entry', () => {
         const deskManagerGroup = component.model.find((item) => item.label === 'DeskManager');
         const labels = (deskManagerGroup?.items ?? []).map((item) => item.label);

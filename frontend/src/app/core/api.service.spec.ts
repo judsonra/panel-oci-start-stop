@@ -202,4 +202,38 @@ describe('ApiService', () => {
             results: []
         });
     });
+
+    it('does not serialize undefined audit access query params', () => {
+        service.listAuditAccess({ query: undefined, email: undefined }).subscribe();
+
+        const request = httpMock.expectOne('http://localhost:8000/api/audit/access');
+        expect(request.request.method).toBe('GET');
+        expect(request.request.params.keys()).toEqual([]);
+        request.flush([]);
+    });
+
+    it('serializes only defined audit access query params', () => {
+        service.listAuditAccess({ query: 'admin', auth_source: undefined }).subscribe();
+
+        const request = httpMock.expectOne('http://localhost:8000/api/audit/access?query=admin');
+        expect(request.request.method).toBe('GET');
+        request.flush([]);
+    });
+
+    it('does not serialize undefined audit configuration query params', () => {
+        service.listAuditConfigurations({ query: undefined, actor_email: undefined }).subscribe();
+
+        const request = httpMock.expectOne('http://localhost:8000/api/audit/configurations');
+        expect(request.request.method).toBe('GET');
+        expect(request.request.params.keys()).toEqual([]);
+        request.flush([]);
+    });
+
+    it('serializes only defined audit configuration query params', () => {
+        service.listAuditConfigurations({ query: 'schedule', entity_type: 'schedule', actor_email: undefined }).subscribe();
+
+        const request = httpMock.expectOne('http://localhost:8000/api/audit/configurations?query=schedule&entity_type=schedule');
+        expect(request.request.method).toBe('GET');
+        request.flush([]);
+    });
 });

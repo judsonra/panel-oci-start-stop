@@ -253,7 +253,7 @@ A aplicação lê variáveis de ambiente a partir de `.env` e de `docker-compose
 | `APP_TIMEZONE` | `backend` | Não | `UTC` | Define o timezone da aplicação para comportamento de agendamento e regras temporais do backend. |
 | `SCHEDULER_POLL_SECONDS` | `backend` | Não | `30` | Controla o intervalo de verificação do scheduler para encontrar execuções pendentes. |
 | `SCHEDULER_ENABLED` | `backend` | Não | `true` | Habilita ou desabilita o loop do scheduler na inicialização do backend. |
-| `SCHEDULE_GROUP_MAX_CONCURRENCY` | `backend` | Não | `3` | Limita quantas ações de instâncias do mesmo grupo agendado podem ser executadas em paralelo durante a execução do scheduler. |
+| `SCHEDULE_GROUP_MAX_CONCURRENCY` | `backend` | Não | `10` | Limita quantas ações de instâncias do mesmo grupo agendado podem ser executadas em paralelo durante a execução do scheduler. |
 | `CORS_ORIGINS` | `backend`, `reports` | Não | `http://localhost:4200,http://127.0.0.1:4200` | Lista separada por vírgulas com as origens permitidas para chamadas de navegador às APIs. |
 | `DESKMANAGER_AUTH_URL` | `backend` | Sim | `https://api.desk.ms/Login/autenticar` | URL usada para autenticar no DeskManager antes de abrir chamados. |
 | `DESKMANAGER_TICKETS_URL` | `backend` | Sim | `https://api.desk.ms/Chamados` | URL do endpoint de criação de chamados do DeskManager. |

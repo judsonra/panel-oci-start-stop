@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
@@ -71,6 +71,17 @@ export class ApiService {
 
     private resolveDocsUrl(baseUrl: string): string {
         return baseUrl.replace(/\/api\/?$/, '/docs#');
+    }
+
+    private buildQueryParams(params?: Record<string, string | number | boolean | null | undefined>): HttpParams {
+        let httpParams = new HttpParams();
+        for (const [key, value] of Object.entries(params ?? {})) {
+            if (value === undefined || value === null || value === '') {
+                continue;
+            }
+            httpParams = httpParams.set(key, String(value));
+        }
+        return httpParams;
     }
 
     getBackendHealth(): Observable<BackendHealthResponse> {
@@ -289,7 +300,7 @@ export class ApiService {
     }
 
     listAuditAccess(params?: { email?: string; event_type?: string; auth_source?: string; query?: string }): Observable<AuditAccessLogModel[]> {
-        return this.http.get<AuditAccessLogModel[]>(`${this.baseUrl}/audit/access`, { params: params ?? {} });
+        return this.http.get<AuditAccessLogModel[]>(`${this.baseUrl}/audit/access`, { params: this.buildQueryParams(params) });
     }
 
     listAuditConfigurations(params?: {
@@ -298,7 +309,7 @@ export class ApiService {
         entity_type?: string;
         query?: string;
     }): Observable<AuditConfigurationLogModel[]> {
-        return this.http.get<AuditConfigurationLogModel[]>(`${this.baseUrl}/audit/configurations`, { params: params ?? {} });
+        return this.http.get<AuditConfigurationLogModel[]>(`${this.baseUrl}/audit/configurations`, { params: this.buildQueryParams(params) });
     }
 
     listAuditExecutions(): Observable<ExecutionModel[]> {

@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { Observable, Subject, of, throwError } from 'rxjs';
 import { ApiService } from '@/app/core/api.service';
 import { InstanceImportPreviewModel } from '@/app/core/models';
@@ -17,6 +17,7 @@ describe('InstancesPage', () => {
             ocid: 'ocid1.instance.oc1..example',
             compartment_id: 'compartment-1',
             enabled: true,
+            last_known_state: 'STOPPED',
             vcpu: 2,
             memory_gbs: 16,
             public_ip: '129.10.10.10',
@@ -81,6 +82,7 @@ describe('InstancesPage', () => {
             of({
                 id: 'exec-1',
                 instance_id: 'instance-1',
+                instance_state: 'RUNNING',
                 action: 'start',
                 source: 'manual',
                 status: 'success',
@@ -347,6 +349,16 @@ describe('InstancesPage', () => {
         expect(pendingFixture.nativeElement.textContent).toContain('Nenhuma instância cadastrada.');
     });
 
+    it('hides vcpu, memory and public ip columns from the registered instances table', () => {
+        const text = fixture.nativeElement.textContent;
+
+        expect(text).not.toContain('vCPU');
+        expect(text).not.toContain('Memória');
+        expect(text).not.toContain('IP Público');
+        expect(text).toContain('IP Privado');
+        expect(text).toContain('Status');
+    });
+
     it('filters instances locally by name, ocid and ips', () => {
         component.instances.set([
             listedInstances[0],
@@ -408,9 +420,24 @@ describe('InstancesPage', () => {
 
         expect(apiService.refreshInstanceStatuses).toHaveBeenCalled();
         expect(apiService.getInstanceStatus).not.toHaveBeenCalled();
-        expect(component.refreshProgressCount()).toBe(2);
-        expect(component.refreshProgressTotal()).toBe(2);
         expect(component.actionFeedback()).toContain('Atualização concluída: 1 alterada');
+    });
+
+    it('shows an indeterminate progress bar without numeric counter during batch refresh', () => {
+        component.instances.set([listedInstances[0]]);
+        component.openRefreshConfirmation();
+
+        component.confirmRefreshStatuses();
+        fixture.detectChanges();
+
+        const text = fixture.nativeElement.textContent;
+        const progressbar = fixture.nativeElement.querySelector('p-progressbar');
+
+        expect(apiService.refreshInstanceStatuses).toHaveBeenCalled();
+        expect(component.refreshProgressVisible()).toBeFalse();
+        expect(text).not.toContain('0 / 0');
+        expect(text).not.toContain('1 / 1');
+        expect(progressbar.getAttribute('mode')).toBe('indeterminate');
     });
 
     it('shows feedback when there are no instances to refresh', () => {
@@ -487,11 +514,126 @@ describe('InstancesPage', () => {
         expect(component.instances()[0].last_known_state).toBe('RUNNING');
     });
 
-    it('calls the api when starting and stopping an instance', () => {
+    it('only enables start for enabled instances with STOPPED status', () => {
+        expect(component.canStartInstance(listedInstances[0])).toBeTrue();
+        expect(component.canStartInstance({ ...listedInstances[0], enabled: false })).toBeFalse();
+        expect(component.canStartInstance({ ...listedInstances[0], last_known_state: 'RUNNING' })).toBeFalse();
+        expect(component.canStartInstance({ ...listedInstances[0], last_known_state: 'STOPPING' })).toBeFalse();
+        expect(component.canStartInstance({ ...listedInstances[0], last_known_state: 'STARTING' })).toBeFalse();
+        expect(component.canStartInstance({ ...listedInstances[0], last_known_state: 'UNKNOWN' })).toBeFalse();
+    });
+
+    it('does not call start api when the instance is not eligible', () => {
+        component.instances.set([{ ...listedInstances[0], last_known_state: 'RUNNING' }]);
+
+        component.start('instance-1');
+
+        expect(apiService.startInstance).not.toHaveBeenCalled();
+    });
+
+    it('calls the api when starting and stopping an eligible instance', () => {
         component.start('instance-1');
         component.stop('instance-1');
 
         expect(apiService.startInstance).toHaveBeenCalledWith('instance-1');
         expect(apiService.stopInstance).toHaveBeenCalledWith('instance-1');
     });
+
+    it('updates the local status from the start response immediately', () => {
+        apiService.startInstance.and.returnValue(
+            of({
+                id: 'exec-1',
+                instance_id: 'instance-1',
+                instance_state: 'STARTING',
+                action: 'start',
+                source: 'manual',
+                status: 'success',
+                started_at: '2026-03-12T00:00:00Z'
+            })
+        );
+
+        component.start('instance-1');
+
+        expect(component.instances()[0].last_known_state).toBe('STARTING');
+    });
+
+    it('polls status every 15 seconds after start until reaching RUNNING', fakeAsync(() => {
+        apiService.startInstance.and.returnValue(
+            of({
+                id: 'exec-1',
+                instance_id: 'instance-1',
+                instance_state: 'STARTING',
+                action: 'start',
+                source: 'manual',
+                status: 'success',
+                started_at: '2026-03-12T00:00:00Z'
+            })
+        );
+        apiService.getInstanceStatus.and.returnValues(
+            of({
+                id: 'exec-status-1',
+                instance_id: 'instance-1',
+                instance_state: 'STARTING',
+                action: 'status',
+                source: 'manual',
+                status: 'success',
+                started_at: '2026-03-12T00:00:00Z'
+            }),
+            of({
+                id: 'exec-status-2',
+                instance_id: 'instance-1',
+                instance_state: 'RUNNING',
+                action: 'status',
+                source: 'manual',
+                status: 'success',
+                started_at: '2026-03-12T00:00:00Z'
+            })
+        );
+
+        component.start('instance-1');
+        expect(component.isStarting('instance-1')).toBeTrue();
+
+        tick(15000);
+        expect(apiService.getInstanceStatus).toHaveBeenCalledTimes(1);
+        expect(component.instances()[0].last_known_state).toBe('STARTING');
+        expect(component.isStarting('instance-1')).toBeTrue();
+
+        tick(15000);
+        expect(apiService.getInstanceStatus).toHaveBeenCalledTimes(2);
+        expect(component.instances()[0].last_known_state).toBe('RUNNING');
+        expect(component.isStarting('instance-1')).toBeFalse();
+    }));
+
+    it('shows the manual update alert after four status checks without RUNNING', fakeAsync(() => {
+        apiService.startInstance.and.returnValue(
+            of({
+                id: 'exec-1',
+                instance_id: 'instance-1',
+                instance_state: 'STARTING',
+                action: 'start',
+                source: 'manual',
+                status: 'success',
+                started_at: '2026-03-12T00:00:00Z'
+            })
+        );
+        apiService.getInstanceStatus.and.returnValues(
+            of({ id: 'exec-status-1', instance_id: 'instance-1', instance_state: 'STARTING', action: 'status', source: 'manual', status: 'success', started_at: '2026-03-12T00:00:00Z' }),
+            of({ id: 'exec-status-2', instance_id: 'instance-1', instance_state: 'STARTING', action: 'status', source: 'manual', status: 'success', started_at: '2026-03-12T00:00:00Z' }),
+            of({ id: 'exec-status-3', instance_id: 'instance-1', instance_state: 'STARTING', action: 'status', source: 'manual', status: 'success', started_at: '2026-03-12T00:00:00Z' }),
+            of({ id: 'exec-status-4', instance_id: 'instance-1', instance_state: 'STARTING', action: 'status', source: 'manual', status: 'success', started_at: '2026-03-12T00:00:00Z' })
+        );
+
+        component.start('instance-1');
+
+        tick(15000);
+        tick(15000);
+        tick(15000);
+        tick(15000);
+        fixture.detectChanges();
+
+        expect(apiService.getInstanceStatus).toHaveBeenCalledTimes(4);
+        expect(component.isStarting('instance-1')).toBeFalse();
+        expect(component.startStatusAlert()).toBe('Atualizar manualmente o status da Teste');
+        expect(fixture.nativeElement.textContent).toContain('Atualizar manualmente o status da Teste');
+    }));
 });

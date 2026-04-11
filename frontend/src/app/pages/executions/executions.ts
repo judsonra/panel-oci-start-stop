@@ -39,8 +39,8 @@ import { ExecutionModel } from '@/app/core/models';
                         <td>
                             <p-tag [severity]="execution.status === 'success' ? 'success' : execution.status === 'pending' ? 'warn' : 'danger'" [value]="execution.status"></p-tag>
                         </td>
-                        <td>{{ execution.started_at | date: 'dd/MM/yyyy HH:mm' }}</td>
-                        <td>{{ execution.finished_at ? (execution.finished_at | date: 'dd/MM/yyyy HH:mm') : '-' }}</td>
+                        <td>{{ execution.started_at | date: 'dd/MM/yyyy HH:mm:ss.SSS' }}</td>
+                        <td>{{ execution.finished_at ? (execution.finished_at | date: 'dd/MM/yyyy HH:mm:ss.SSS') : '-' }}</td>
                         <td>{{ execution.stderr_summary || execution.stdout_summary || '-' }}</td>
                     </tr>
                 </ng-template>

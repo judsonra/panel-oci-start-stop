@@ -32,7 +32,6 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                 type="button"
                 label="Atualizar"
                 icon="pi pi-refresh"
-                [outlined]="true"
                 [severity]="refreshButtonSeverity()"
                 styleClass="instances-refresh-button"
                 [loading]="refreshButtonLoading()"
@@ -86,13 +85,12 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                 </div>
             </ng-template>
             <div class="refresh-progress-copy">
-                <strong>{{ refreshProgressCount() }} / {{ refreshProgressTotal() }}</strong>
                 <span>{{ refreshProgressMessage() }}</span>
                 @if (refreshCurrentInstanceName()) {
                     <small>Consultando: {{ refreshCurrentInstanceName() }}</small>
                 }
             </div>
-            <p-progressbar [value]="refreshProgressPercent()"></p-progressbar>
+            <p-progressbar mode="indeterminate"></p-progressbar>
         </p-dialog>
 
         <p-dialog
@@ -224,6 +222,25 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                         @if (error()) {
                             <p-message severity="error" [text]="error() || ''"></p-message>
                         }
+                        @if (startStatusAlert()) {
+                            <aside class="instances-slide-alert" role="alert" aria-live="assertive">
+                                <div class="instances-slide-alert-copy">
+                                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                                    <span>{{ startStatusAlert() }}</span>
+                                </div>
+                                <button
+                                    pButton
+                                    type="button"
+                                    icon="pi pi-times"
+                                    text
+                                    rounded
+                                    severity="secondary"
+                                    ariaLabel="Fechar alerta"
+                                    (click)="dismissStartStatusAlert()"
+                                >
+                                </button>
+                            </aside>
+                        }
 
                         <section class="table-filter-row instances-filter-row">
                             <input
@@ -245,9 +262,6 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                     <tr>
                                         <th>Nome</th>
                                         <th>OCID</th>
-                                        <th>vCPU</th>
-                                        <th>Memória</th>
-                                        <th>IP Público</th>
                                         <th>IP Privado</th>
                                         <th>Status</th>
                                         <th>Habilitada</th>
@@ -276,9 +290,6 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                                 ></button>
                                             </div>
                                         </td>
-                                        <td>{{ formatNumber(instance.vcpu) }}</td>
-                                        <td>{{ formatMemory(instance.memory_gbs) }}</td>
-                                        <td>{{ instance.public_ip || '-' }}</td>
                                         <td>{{ instance.private_ip || '-' }}</td>
                                         <td>
                                             <p-tag [severity]="tagSeverity(instance.last_known_state)" [value]="instance.last_known_state || 'UNKNOWN'"></p-tag>
@@ -302,8 +313,9 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                                     pTooltip="Ligar"
                                                     tooltipPosition="top"
                                                     ariaLabel="Ligar"
+                                                    [loading]="isStarting(instance.id)"
                                                     (onClick)="start(instance.id)"
-                                                    [disabled]="!instance.enabled"
+                                                    [disabled]="!canStartInstance(instance)"
                                                 />
                                                 <p-button
                                                     type="button"
@@ -315,7 +327,7 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                                     tooltipPosition="top"
                                                     ariaLabel="Desligar"
                                                     (onClick)="stop(instance.id)"
-                                                    [disabled]="!instance.enabled"
+                                                    [disabled]="!instance.enabled || isStarting(instance.id)"
                                                 />
                                                 <p-button
                                                     type="button"
@@ -328,7 +340,7 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                                     ariaLabel="Atualizar status"
                                                     [loading]="isRefreshingRow(instance.id)"
                                                     (onClick)="refreshInstanceStatus(instance)"
-                                                    [disabled]="!instance.enabled || isRefreshingRow(instance.id)"
+                                                    [disabled]="!instance.enabled || isRefreshingRow(instance.id) || isStarting(instance.id)"
                                                 />
                                             </div>
                                         </td>
@@ -336,7 +348,7 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                 </ng-template>
                                 <ng-template pTemplate="emptymessage">
                                     <tr>
-                                        <td colspan="9">{{ showInitialLoadingHint() ? '' : 'Nenhuma instância cadastrada.' }}</td>
+                                        <td colspan="6">{{ showInitialLoadingHint() ? '' : 'Nenhuma instância cadastrada.' }}</td>
                                     </tr>
                                 </ng-template>
                             </p-table>
@@ -434,6 +446,9 @@ export class InstancesPage implements OnInit, OnDestroy {
     private readonly api = inject(ApiService);
     private readonly formBuilder = inject(FormBuilder);
     private autoRegisterPollingSubscription: Subscription | null = null;
+    private readonly startStatusPollingSubscriptions = new Map<string, Subscription>();
+    private readonly startStatusPollIntervalMs = 15000;
+    private readonly maxStartStatusChecks = 4;
 
     readonly instances = signal<InstanceModel[]>([]);
     readonly importPreview = signal<InstanceImportPreviewModel | null>(null);
@@ -446,12 +461,11 @@ export class InstancesPage implements OnInit, OnDestroy {
     readonly activeTab = signal(0);
     readonly togglingIds = signal<Set<string>>(new Set());
     readonly refreshingRowIds = signal<Set<string>>(new Set());
+    readonly startingIds = signal<Set<string>>(new Set());
     readonly refreshConfirmationVisible = signal(false);
     readonly refreshProgressVisible = signal(false);
     readonly refreshingStatuses = signal(false);
     readonly instanceSearchTerm = signal('');
-    readonly refreshProgressCount = signal(0);
-    readonly refreshProgressTotal = signal(0);
     readonly refreshCurrentInstanceName = signal<string | null>(null);
     readonly refreshProgressMessage = signal('Preparando consulta...');
     readonly refreshCancellationRequested = signal(false);
@@ -463,6 +477,7 @@ export class InstancesPage implements OnInit, OnDestroy {
     readonly autoRegisterJobStatus = signal<ImportAllCompartmentsJobStatusModel | null>(null);
     readonly autoRegisterCompleted = signal(false);
     readonly autoRegisterConfirmationText = signal('');
+    readonly startStatusAlert = signal<string | null>(null);
     readonly isInitialLoadPending = computed(() => this.loading() && this.instances().length === 0);
     readonly showInitialLoadingHint = computed(() => this.isInitialLoadPending());
     readonly tableLoading = computed(() => this.loading() && this.instances().length > 0);
@@ -477,10 +492,6 @@ export class InstancesPage implements OnInit, OnDestroy {
             && !this.importPreviewLoading()
             && this.form.controls.ocid.valid
             && this.form.controls.ocid.value.trim() === preview.ocid;
-    });
-    readonly refreshProgressPercent = computed(() => {
-        const total = this.refreshProgressTotal();
-        return total === 0 ? 0 : Math.round((this.refreshProgressCount() / total) * 100);
     });
     readonly filteredInstances = computed(() => {
         const query = this.instanceSearchTerm().trim().toLowerCase();
@@ -530,6 +541,7 @@ export class InstancesPage implements OnInit, OnDestroy {
 
     ngOnDestroy(): void {
         this.stopAutomaticRegistrationPolling();
+        this.cancelAllStartStatusPolling();
     }
 
     loadInstances(): void {
@@ -633,8 +645,6 @@ export class InstancesPage implements OnInit, OnDestroy {
         this.refreshingStatuses.set(true);
         this.refreshProgressVisible.set(true);
         this.refreshCancellationRequested.set(false);
-        this.refreshProgressCount.set(0);
-        this.refreshProgressTotal.set(0);
         this.refreshProgressMessage.set('Consultando os compartimentos e atualizando os status...');
         this.refreshCurrentInstanceName.set(null);
         this.error.set(null);
@@ -714,7 +724,41 @@ export class InstancesPage implements OnInit, OnDestroy {
     }
 
     start(instanceId: string): void {
-        this.handleInstanceAction(instanceId, 'start');
+        const instance = this.instances().find((item) => item.id === instanceId);
+        if (!instance || !this.canStartInstance(instance)) {
+            return;
+        }
+
+        this.startStatusAlert.set(null);
+        this.actionFeedback.set(null);
+        this.error.set(null);
+        this.markStarting(instance.id, true);
+        this.cancelStartStatusPolling(instance.id);
+
+        this.api.startInstance(instance.id).subscribe({
+            next: (execution) => {
+                const nextState = execution.instance_state ?? instance.last_known_state ?? null;
+                this.updateInstanceState(instance.id, nextState);
+                this.actionFeedbackSeverity.set(execution.status === 'failed' ? 'error' : 'success');
+                this.actionFeedback.set(
+                    execution.status === 'failed'
+                        ? execution.stderr_summary || 'A operação retornou falha no backend.'
+                        : `Comando de inicialização enviado com sucesso para ${instance.name}.`
+                );
+
+                if (execution.status === 'failed' || nextState === 'RUNNING') {
+                    this.markStarting(instance.id, false);
+                    return;
+                }
+
+                this.scheduleStartStatusCheck(instance.id, instance.name, 1);
+            },
+            error: (response: { error?: ApiErrorResponse }) => {
+                this.actionFeedbackSeverity.set('error');
+                this.actionFeedback.set(response.error?.detail ?? 'Falha ao executar a ação na instância.');
+                this.markStarting(instance.id, false);
+            }
+        });
     }
 
     stop(instanceId: string): void {
@@ -744,6 +788,18 @@ export class InstancesPage implements OnInit, OnDestroy {
 
     isRefreshingRow(instanceId: string): boolean {
         return this.refreshingRowIds().has(instanceId);
+    }
+
+    isStarting(instanceId: string): boolean {
+        return this.startingIds().has(instanceId);
+    }
+
+    canStartInstance(instance: InstanceModel): boolean {
+        return instance.enabled && instance.last_known_state === 'STOPPED' && !this.isStarting(instance.id);
+    }
+
+    dismissStartStatusAlert(): void {
+        this.startStatusAlert.set(null);
     }
 
     setActiveTab(value: string | number | undefined): void {
@@ -896,8 +952,6 @@ export class InstancesPage implements OnInit, OnDestroy {
     }
 
     private handleRefreshSummary(summary: InstanceStatusRefreshModel): void {
-        this.refreshProgressTotal.set(summary.total_compartments);
-        this.refreshProgressCount.set(summary.processed_compartments);
         const failedCompartment = summary.compartments.find((item) => item.failed > 0);
         const lastProcessedCompartment = summary.compartments.length > 0 ? summary.compartments[summary.compartments.length - 1] : null;
         this.refreshCurrentInstanceName.set(failedCompartment?.compartment_name ?? lastProcessedCompartment?.compartment_name ?? null);
@@ -960,6 +1014,69 @@ export class InstancesPage implements OnInit, OnDestroy {
             next.delete(instanceId);
         }
         this.refreshingRowIds.set(next);
+    }
+
+    private markStarting(instanceId: string, starting: boolean): void {
+        const next = new Set(this.startingIds());
+        if (starting) {
+            next.add(instanceId);
+        } else {
+            next.delete(instanceId);
+        }
+        this.startingIds.set(next);
+    }
+
+    private updateInstanceState(instanceId: string, nextState: string | null): void {
+        this.instances.set(this.instances().map((item) => (item.id === instanceId ? { ...item, last_known_state: nextState } : item)));
+    }
+
+    private scheduleStartStatusCheck(instanceId: string, instanceName: string, attempt: number): void {
+        this.cancelStartStatusPolling(instanceId);
+
+        const subscription = timer(this.startStatusPollIntervalMs)
+            .pipe(switchMap(() => this.api.getInstanceStatus(instanceId)))
+            .subscribe({
+                next: (execution) => {
+                    const nextState = execution.instance_state ?? null;
+                    this.updateInstanceState(instanceId, nextState);
+
+                    if (nextState === 'RUNNING') {
+                        this.markStarting(instanceId, false);
+                        this.cancelStartStatusPolling(instanceId);
+                        return;
+                    }
+
+                    if (attempt >= this.maxStartStatusChecks) {
+                        this.markStarting(instanceId, false);
+                        this.cancelStartStatusPolling(instanceId);
+                        this.startStatusAlert.set(`Atualizar manualmente o status da ${instanceName}`);
+                        return;
+                    }
+
+                    this.scheduleStartStatusCheck(instanceId, instanceName, attempt + 1);
+                },
+                error: (response: { error?: ApiErrorResponse }) => {
+                    this.cancelStartStatusPolling(instanceId);
+                    this.markStarting(instanceId, false);
+                    this.actionFeedbackSeverity.set('error');
+                    this.actionFeedback.set(response.error?.detail ?? 'Não foi possível atualizar o status da instância.');
+                }
+            });
+
+        this.startStatusPollingSubscriptions.set(instanceId, subscription);
+    }
+
+    private cancelStartStatusPolling(instanceId: string): void {
+        const current = this.startStatusPollingSubscriptions.get(instanceId);
+        current?.unsubscribe();
+        this.startStatusPollingSubscriptions.delete(instanceId);
+    }
+
+    private cancelAllStartStatusPolling(): void {
+        for (const subscription of this.startStatusPollingSubscriptions.values()) {
+            subscription.unsubscribe();
+        }
+        this.startStatusPollingSubscriptions.clear();
     }
 
     private resetForm(): void {

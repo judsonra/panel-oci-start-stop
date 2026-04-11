@@ -86,6 +86,15 @@ def serialize_schedule(schedule) -> ScheduleRead:
     )
 
 
+def serialize_execution(execution) -> ExecutionLogRead:
+    return ExecutionLogRead.model_validate(execution).model_copy(
+        update={
+            "instance_name": execution.instance.name if execution.instance else execution.instance_id,
+            "instance_state": execution.instance.last_known_state if execution.instance else None,
+        }
+    )
+
+
 def serialize_group(group) -> GroupRead:
     instances = sorted(group.instances, key=lambda item: (item.name.casefold(), item.ocid.casefold()))
     return GroupRead(
@@ -596,7 +605,7 @@ def start_instance(
     _: CurrentUser = Depends(require_permission("instances.manage")),
     service: InstanceService = Depends(get_instance_service),
 ) -> ExecutionLogRead:
-    return ExecutionLogRead.model_validate(service.start(instance_id))
+    return serialize_execution(service.start(instance_id))
 
 
 @router.post("/instances/{instance_id}/stop", response_model=ExecutionLogRead)
@@ -605,7 +614,7 @@ def stop_instance(
     _: CurrentUser = Depends(require_permission("instances.manage")),
     service: InstanceService = Depends(get_instance_service),
 ) -> ExecutionLogRead:
-    return ExecutionLogRead.model_validate(service.stop(instance_id))
+    return serialize_execution(service.stop(instance_id))
 
 
 @router.get("/instances/{instance_id}/status", response_model=ExecutionLogRead)
@@ -614,8 +623,7 @@ def get_status(
     _: CurrentUser = Depends(require_permission("instances.view")),
     service: InstanceService = Depends(get_instance_service),
 ) -> ExecutionLogRead:
-    execution = service.get_status(instance_id)
-    return ExecutionLogRead.model_validate(execution).model_copy(update={"instance_state": execution.instance.last_known_state})
+    return serialize_execution(service.get_status(instance_id))
 
 
 @router.post("/instances/status-refresh", response_model=InstanceStatusRefreshRead)
@@ -671,12 +679,7 @@ def list_executions(
     repository = ExecutionRepository(session)
     executions: list[ExecutionLogRead] = []
     for item in repository.list():
-        execution = ExecutionLogRead.model_validate(item)
-        executions.append(
-            execution.model_copy(
-                update={"instance_name": item.instance.name if item.instance else item.instance_id}
-            )
-        )
+        executions.append(serialize_execution(item))
     return executions
 
 

@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from app.api.routes import list_schedules
+from app.core.config import Settings
 from app.core.security import CurrentUser
 from app.models.execution_log import ExecutionSource
 from app.models.group import Group
@@ -21,6 +24,43 @@ class StubInstanceService:
 
     def restart(self, instance_id: str, source):
         self.called.append(("restart", instance_id, source))
+
+
+class FakeFuture:
+    def result(self):
+        return None
+
+
+class FakeThreadPoolExecutor:
+    def __init__(self, *, max_workers: int) -> None:
+        self.max_workers = max_workers
+        self.submitted = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def submit(self, fn, *args):
+        self.submitted.append((fn, args))
+        return FakeFuture()
+
+
+def test_settings_default_group_max_concurrency_is_10(monkeypatch):
+    monkeypatch.delenv("SCHEDULE_GROUP_MAX_CONCURRENCY", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.schedule_group_max_concurrency == 10
+
+
+def test_settings_env_overrides_group_max_concurrency(monkeypatch):
+    monkeypatch.setenv("SCHEDULE_GROUP_MAX_CONCURRENCY", "7")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.schedule_group_max_concurrency == 7
 
 
 def test_is_due_one_time_schedule(override_session):
@@ -167,6 +207,80 @@ def test_process_due_group_schedule_triggers_all_enabled_instances(override_sess
         ("stop", instance_a.id, ExecutionSource.schedule),
         ("stop", instance_b.id, ExecutionSource.schedule),
     ]
+
+
+def test_trigger_group_uses_instance_count_when_below_max_concurrency(override_session):
+    instances = [
+        Instance(name=f"VM {idx}", ocid=f"ocid1.instance.oc1.sa-saopaulo-1.schedule-below-{idx}", enabled=True)
+        for idx in range(3)
+    ]
+    group = Group(name="Grupo Concorrencia Baixa", normalized_name="grupo concorrencia baixa")
+    group.instances = instances
+    override_session.add_all([*instances, group])
+    override_session.commit()
+    override_session.refresh(group)
+    schedule = Schedule(
+        target_type=ScheduleTargetType.group,
+        group_id=group.id,
+        type=ScheduleType.weekly,
+        action=ScheduleAction.start,
+        days_of_week=[1],
+        time_utc="08:00",
+        enabled=True,
+    )
+    service = ScheduleService(override_session, StubInstanceService())  # type: ignore[arg-type]
+    executor_calls = []
+
+    def build_executor(*, max_workers: int):
+        executor = FakeThreadPoolExecutor(max_workers=max_workers)
+        executor_calls.append(executor)
+        return executor
+
+    with patch("app.services.schedule_service.get_settings", return_value=SimpleNamespace(schedule_group_max_concurrency=10)):
+        with patch("app.services.schedule_service.ThreadPoolExecutor", side_effect=build_executor):
+            with patch("app.services.schedule_service.as_completed", side_effect=lambda futures: futures):
+                service._trigger_group(schedule)
+
+    assert len(executor_calls) == 1
+    assert executor_calls[0].max_workers == 3
+    assert len(executor_calls[0].submitted) == 3
+
+
+def test_trigger_group_limits_thread_pool_to_10_workers(override_session):
+    instances = [
+        Instance(name=f"VM {idx}", ocid=f"ocid1.instance.oc1.sa-saopaulo-1.schedule-cap-{idx}", enabled=True)
+        for idx in range(12)
+    ]
+    group = Group(name="Grupo Concorrencia Alta", normalized_name="grupo concorrencia alta")
+    group.instances = instances
+    override_session.add_all([*instances, group])
+    override_session.commit()
+    override_session.refresh(group)
+    schedule = Schedule(
+        target_type=ScheduleTargetType.group,
+        group_id=group.id,
+        type=ScheduleType.weekly,
+        action=ScheduleAction.stop,
+        days_of_week=[1],
+        time_utc="08:00",
+        enabled=True,
+    )
+    service = ScheduleService(override_session, StubInstanceService())  # type: ignore[arg-type]
+    executor_calls = []
+
+    def build_executor(*, max_workers: int):
+        executor = FakeThreadPoolExecutor(max_workers=max_workers)
+        executor_calls.append(executor)
+        return executor
+
+    with patch("app.services.schedule_service.get_settings", return_value=SimpleNamespace(schedule_group_max_concurrency=10)):
+        with patch("app.services.schedule_service.ThreadPoolExecutor", side_effect=build_executor):
+            with patch("app.services.schedule_service.as_completed", side_effect=lambda futures: futures):
+                service._trigger_group(schedule)
+
+    assert len(executor_calls) == 1
+    assert executor_calls[0].max_workers == 10
+    assert len(executor_calls[0].submitted) == 12
 
 
 def test_is_due_monthly_schedule(override_session):
