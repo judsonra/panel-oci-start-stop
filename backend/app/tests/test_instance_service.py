@@ -3,6 +3,7 @@ from fastapi import HTTPException
 from app.api.routes import (
     create_instance,
     get_instance_import_preview,
+    start_instance,
     get_instance_vnic,
     refresh_instance_statuses,
     get_status,
@@ -71,6 +72,9 @@ def test_start_instance_creates_success_log(override_session):
             enabled=True,
         )
     )
+    created.last_known_state = "STOPPED"
+    override_session.add(created)
+    override_session.commit()
     execution = service.start(created.id)
     assert execution.status == ExecutionStatus.success
     assert execution.stdout_summary == "started"
@@ -87,6 +91,9 @@ def test_start_instance_creates_failure_log(override_session):
             enabled=True,
         )
     )
+    created.last_known_state = "STOPPED"
+    override_session.add(created)
+    override_session.commit()
     execution = service.start(created.id)
     assert execution.status == ExecutionStatus.failed
     assert execution.stderr_summary == "oci_command_failed"
@@ -108,6 +115,64 @@ def test_start_instance_rejects_disabled_instance(override_session):
         assert exc.status_code == 400
     else:
         raise AssertionError("Expected disabled instance to raise HTTPException")
+
+
+def test_start_instance_rejects_non_stopped_status(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="VM Running",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.running",
+            description="instancia ligada",
+            enabled=True,
+        )
+    )
+    created.last_known_state = "RUNNING"
+    override_session.add(created)
+    override_session.commit()
+
+    called = False
+    original_start_instance = fake_oci_service.start_instance
+
+    def fail_if_called(_: str):
+        nonlocal called
+        called = True
+        return original_start_instance(_)
+
+    fake_oci_service.start_instance = fail_if_called
+    try:
+        try:
+            service.start(created.id)
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert exc.detail == "Instance can only be started when enabled and with status STOPPED"
+        else:
+            raise AssertionError("Expected invalid state to raise HTTPException")
+    finally:
+        fake_oci_service.start_instance = original_start_instance
+
+    assert called is False
+
+
+def test_start_route_returns_instance_state(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="VM Route Start",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.routestart",
+            description="instancia rota",
+            enabled=True,
+        )
+    )
+    created.last_known_state = "STOPPED"
+    override_session.add(created)
+    override_session.commit()
+
+    response = start_instance(created.id, CurrentUser(subject="local", email=None, groups=[]), service)
+
+    assert response.instance_id == created.id
+    assert response.instance_state == "RUNNING"
+    assert response.status == ExecutionStatus.success
 
 
 def test_get_status_route_returns_instance_state(override_session):

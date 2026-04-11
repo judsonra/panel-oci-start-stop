@@ -56,7 +56,7 @@ export class AppMenu {
                             : null,
                         hasPermission('reports.view')
                             ? {
-                                  label: 'Custo/Compartimento',
+                                  label: 'Custo',
                                   icon: 'pi pi-wallet',
                                   routerLink: ['/reports/cost-by-compartment']
                               }

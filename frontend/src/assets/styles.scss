@@ -514,6 +514,35 @@ select {
     border-left: 1px solid var(--app-border) !important;
 }
 
+.instances-slide-alert {
+    position: fixed;
+    top: 5.75rem;
+    right: 1.5rem;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    max-width: min(28rem, calc(100vw - 2rem));
+    padding: 0.85rem 1rem;
+    border: 1px solid rgba(194, 123, 0, 0.25);
+    border-radius: 1rem;
+    background: rgba(255, 245, 214, 0.98);
+    box-shadow: 0 1.1rem 2.4rem rgba(64, 43, 0, 0.12);
+    animation: instances-slide-in 260ms ease-out;
+}
+
+.instances-slide-alert-copy {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    color: #7a4d00;
+    line-height: 1.45;
+}
+
+.instances-slide-alert-copy .pi {
+    font-size: 1rem;
+}
+
 .refresh-progress-copy {
     display: flex;
     flex-direction: column;
@@ -604,6 +633,17 @@ select {
 .auto-register-compartment-card p {
     margin: 0;
     color: var(--app-copy-soft);
+}
+
+@keyframes instances-slide-in {
+    from {
+        opacity: 0;
+        transform: translateX(2rem);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 .wizard-shell {

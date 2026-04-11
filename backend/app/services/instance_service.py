@@ -233,6 +233,7 @@ class InstanceService:
 
     def start(self, instance_id: str, source: ExecutionSource = ExecutionSource.manual) -> ExecutionLog:
         instance = self.get_instance(instance_id)
+        self._ensure_start_allowed(instance)
         return self._execute_action(instance, "start", source)
 
     def stop(self, instance_id: str, source: ExecutionSource = ExecutionSource.manual) -> ExecutionLog:
@@ -667,6 +668,15 @@ class InstanceService:
         self.session.add(instance)
         self.session.commit()
         return execution
+
+    def _ensure_start_allowed(self, instance: Instance) -> None:
+        if not instance.enabled:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instance is disabled")
+        if instance.last_known_state != "STOPPED":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Instance can only be started when enabled and with status STOPPED",
+            )
 
     def _ensure_compartment_cached(self, compartment_ocid: str, known_name: str | None = None) -> Compartment:
         compartment = self.compartments.get_by_ocid(compartment_ocid)
