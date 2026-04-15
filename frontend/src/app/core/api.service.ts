@@ -189,7 +189,7 @@ export class ApiService {
         return this.http.get<InstanceImportPreviewModel>(`${this.baseUrl}/instances/import-preview/${encodeURIComponent(instanceOcid)}`);
     }
 
-    importInstance(payload: { ocid: string; description?: string | null; enabled: boolean }): Observable<InstanceModel> {
+    importInstance(payload: { ocid: string; description?: string | null; enabled: boolean; app_url?: string | null }): Observable<InstanceModel> {
         return this.http.post<InstanceModel>(`${this.baseUrl}/instances/import`, payload);
     }
 

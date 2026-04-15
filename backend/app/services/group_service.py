@@ -6,6 +6,7 @@ from app.models.compartment import Compartment
 from app.models.group import Group
 from app.models.instance import Instance
 from app.repositories.group_repository import GroupRepository
+from app.repositories.schedule_repository import ScheduleRepository
 from app.services.audit_service import AuditService
 
 
@@ -17,6 +18,7 @@ class GroupService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.groups = GroupRepository(session)
+        self.schedules = ScheduleRepository(session)
         self.audit = AuditService(session)
 
     def list_groups(self) -> list[Group]:
@@ -50,6 +52,8 @@ class GroupService:
 
     def delete_group(self, group_id: str, *, actor_email: str | None = None, actor_user_id: str | None = None) -> None:
         group = self.get_group(group_id)
+        if self.schedules.exists_by_group_id(group.id):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Group is linked to one or more schedules")
         before_data = {"id": group.id, "name": group.name, "instance_ids": [item.id for item in group.instances]}
         self.groups.delete(group)
         self.audit.log_configuration_event(

@@ -548,3 +548,226 @@ def test_refresh_statuses_route_returns_summary(override_session):
     assert response.total_compartments == 2
     assert response.updated == 1
     assert response.compartments[0].compartment_ocid.startswith("ocid1.compartment.")
+
+
+def test_create_instance_derives_routing_fields_from_name(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+
+    created = service.create_instance(
+        InstanceCreate(
+            name="OCIXDOC-HMG-CLIENTE-ALPHA",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.routing1",
+            description=None,
+            enabled=True,
+        )
+    )
+
+    assert created.environment == "HMG"
+    assert created.customer_name == "cliente-alpha"
+    assert created.domain == "docnix.com.br"
+    assert created.name_prefix == "OCIXDOC"
+    assert created.app_url == "cliente-alphahmg.docnix.com.br"
+
+
+def test_create_instance_rejects_duplicate_app_url(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+    service.create_instance(
+        InstanceCreate(
+            name="OCIXDOC-PRD-CLIENTE-A",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.dupappa",
+            app_url="clientea.docnix.com.br",
+            description=None,
+            enabled=True,
+        )
+    )
+
+    try:
+        service.create_instance(
+            InstanceCreate(
+                name="OCIXPM-PRD-CLIENTE-A",
+                ocid="ocid1.instance.oc1.sa-saopaulo-1.dupappb",
+                app_url="clientea.docnix.com.br",
+                description=None,
+                enabled=True,
+            )
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 409
+    else:
+        raise AssertionError("Expected duplicate app_url to raise HTTPException")
+
+
+def test_get_import_preview_returns_derived_url_fields(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+    fake_oci_service.instance_details["ocid1.instance.oc1.sa-saopaulo-1.autoa1"] = fake_oci_service.instance_details[
+        "ocid1.instance.oc1.sa-saopaulo-1.autoa1"
+    ].__class__(
+        name="OCIXPM-PRD-CLIENTE-BETA",
+        ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+        compartment_ocid="ocid1.compartment.oc1..aaaa",
+        vcpu=2.0,
+        memory_gbs=12.0,
+        oci_created_at=fake_oci_service.instance_details["ocid1.instance.oc1.sa-saopaulo-1.autoa1"].oci_created_at,
+    )
+
+    preview = service.get_import_preview("ocid1.instance.oc1.sa-saopaulo-1.autoa1")
+
+    assert preview.environment == "PRD"
+    assert preview.domain == "pmrun.com.br"
+    assert preview.app_url == "cliente-beta.pmrun.com.br"
+
+
+def test_proxy_resolve_returns_pass_when_running(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="OCIXDOC-PRD-CLIENTE-RUN",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.proxyrun",
+            app_url="clienterun.docnix.com.br",
+            description=None,
+            enabled=True,
+        )
+    )
+
+    original_status = fake_oci_service.get_status
+    fake_oci_service.get_status = lambda _: original_status(created.ocid)
+    try:
+        result = service.resolve_for_proxy("clienterun.docnix.com.br", cooldown_seconds=60)
+    finally:
+        fake_oci_service.get_status = original_status
+
+    assert result.decision == "pass"
+    assert result.instance_id == created.id
+    assert result.ocid == created.ocid
+
+
+def test_proxy_resolve_starts_when_stopped_and_waits(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="OCIXDOC-PRD-CLIENTE-STOP",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.proxystop",
+            app_url="clientestop.docnix.com.br",
+            description=None,
+            enabled=True,
+        )
+    )
+
+    original_status = fake_oci_service.get_status
+    original_start = fake_oci_service.start_instance
+
+    def stopped_status(_: str):
+        result = original_status(created.ocid)
+        result.state = "STOPPED"
+        return result
+
+    fake_oci_service.get_status = stopped_status
+    fake_oci_service.start_instance = original_start
+    try:
+        result = service.resolve_for_proxy("clientestop.docnix.com.br", cooldown_seconds=60)
+    finally:
+        fake_oci_service.get_status = original_status
+        fake_oci_service.start_instance = original_start
+
+    assert result.decision == "wait"
+    assert result.state in {"RUNNING", "STARTING"}
+    assert result.message is not None
+
+
+def test_proxy_resolve_returns_not_found_when_host_is_unknown(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+
+    result = service.resolve_for_proxy("inexistente.docnix.com.br", cooldown_seconds=60)
+
+    assert result.decision == "not_found"
+
+
+def test_backfill_missing_app_urls_updates_only_missing_values(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+    missing = service.create_instance(
+        InstanceCreate(
+            name="OCIXDOC-HMG-CLIENTE-NEW",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.backfilla",
+            app_url=None,
+            description=None,
+            enabled=True,
+        )
+    )
+    existing = service.create_instance(
+        InstanceCreate(
+            name="OCIXDOC-PRD-CLIENTE-LOCKED",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.backfillb",
+            app_url="manual-lock.docnix.com.br",
+            description=None,
+            enabled=True,
+        )
+    )
+
+    result = service.backfill_missing_app_urls()
+    updated_missing = service.get_instance(missing.id)
+    same_existing = service.get_instance(existing.id)
+
+    assert result.total == 1
+    assert result.updated == 1
+    assert result.unresolved == 0
+    assert updated_missing.app_url == "cliente-newhmg.docnix.com.br"
+    assert same_existing.app_url == "manual-lock.docnix.com.br"
+
+
+def test_backfill_missing_app_urls_marks_unresolved_when_name_cannot_be_derived(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+    service.create_instance(
+        InstanceCreate(
+            name="INSTANCIA-SEM-PADRAO",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.backfillc",
+            app_url=None,
+            description=None,
+            enabled=True,
+        )
+    )
+
+    result = service.backfill_missing_app_urls()
+
+    assert result.total == 1
+    assert result.updated == 0
+    assert result.unresolved == 1
+    assert result.items[0].outcome == "unresolved"
+
+
+def test_backfill_missing_app_urls_continues_when_one_item_fails(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+    failing = service.create_instance(
+        InstanceCreate(
+            name="OCIXDOC-HMG-CLIENTE-FAIL",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.backfilld",
+            app_url=None,
+            description=None,
+            enabled=True,
+        )
+    )
+    service.create_instance(
+        InstanceCreate(
+            name="OCIXDOC-HMG-CLIENTE-OK",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.backfille",
+            app_url=None,
+            description=None,
+            enabled=True,
+        )
+    )
+
+    original_apply_updates = service.instances.apply_updates
+
+    def fail_once(instance, updates):
+        if instance.id == failing.id:
+            raise RuntimeError("forced_backfill_failure")
+        return original_apply_updates(instance, updates)
+
+    service.instances.apply_updates = fail_once
+    try:
+        result = service.backfill_missing_app_urls()
+    finally:
+        service.instances.apply_updates = original_apply_updates
+
+    assert result.total == 2
+    assert result.failed == 1
+    assert result.updated == 1

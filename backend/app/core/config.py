@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     deskmanager_categoria_id: str = ""
     deskmanager_categoria_tipo_id: str = ""
     deskmanager_grupo_id: str = ""
+    proxy_api_key: str = ""
+    proxy_allowed_ips: str = ""
+    proxy_start_cooldown_seconds: int = 60
 
     @property
     def allowed_groups_list(self) -> list[str]:
@@ -64,6 +67,10 @@ class Settings(BaseSettings):
     def entra_token_url(self) -> str:
         authority = self.entra_authority.strip().rstrip("/")
         return f"{authority}/oauth2/v2.0/token" if authority else ""
+
+    @property
+    def proxy_allowed_ips_list(self) -> list[str]:
+        return [ip.strip() for ip in self.proxy_allowed_ips.split(",") if ip.strip()]
 
 
 @lru_cache

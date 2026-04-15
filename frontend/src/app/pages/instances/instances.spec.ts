@@ -30,6 +30,11 @@ describe('InstancesPage', () => {
     const importPreview: InstanceImportPreviewModel = {
         name: 'Instance A1',
         ocid: 'ocid1.instance.oc1.sa-saopaulo-1.autoa1',
+        app_url: 'instancea1hmg.docnix.com.br',
+        environment: 'HMG',
+        customer_name: 'instancea1',
+        domain: 'docnix.com.br',
+        name_prefix: 'OCIXDOC',
         compartment_ocid: 'ocid1.compartment.oc1..aaaa',
         compartment_name: 'Compartment A',
         vcpu: 2,
@@ -216,7 +221,7 @@ describe('InstancesPage', () => {
     });
 
     it('keeps the import form invalid when ocid is empty', () => {
-        component.form.setValue({ ocid: '', description: '', enabled: true });
+        component.form.setValue({ ocid: '', description: '', app_url: '', enabled: true });
         expect(component.form.invalid).toBeTrue();
         expect(component.canSaveImportedInstance()).toBeFalse();
     });
@@ -265,10 +270,11 @@ describe('InstancesPage', () => {
         expect(component.importPreview()).toBeNull();
     });
 
-    it('imports a new instance with ocid, description and enabled only', () => {
+    it('imports a new instance with ocid, description, app_url and enabled', () => {
         component.form.setValue({
             ocid: importPreview.ocid,
             description: 'Importada',
+            app_url: importPreview.app_url || '',
             enabled: false
         });
         component.importPreview.set(importPreview);
@@ -279,6 +285,7 @@ describe('InstancesPage', () => {
         expect(apiService.importInstance).toHaveBeenCalledWith({
             ocid: importPreview.ocid,
             description: 'Importada',
+            app_url: importPreview.app_url,
             enabled: false
         });
         expect(component.activeTab()).toBe(0);

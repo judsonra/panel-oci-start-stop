@@ -1,9 +1,13 @@
 import logging
+import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from threading import Lock
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.compartment import Compartment
@@ -98,6 +102,11 @@ class StatusRefreshResult:
 class InstanceImportPreview:
     name: str
     ocid: str
+    app_url: str | None
+    environment: str | None
+    customer_name: str | None
+    domain: str | None
+    name_prefix: str | None
     vcpu: float | None
     memory_gbs: float | None
     vnic_id: str | None
@@ -109,7 +118,61 @@ class InstanceImportPreview:
     already_registered: bool
 
 
+@dataclass
+class InstanceRoutingData:
+    app_url: str | None
+    environment: str | None
+    customer_name: str | None
+    domain: str | None
+    name_prefix: str | None
+
+
+@dataclass
+class ProxyResolveResult:
+    decision: str
+    instance_id: str | None
+    ocid: str | None
+    state: str | None
+    message: str | None
+    retry_after_seconds: int | None = None
+
+
+@dataclass
+class AppUrlBackfillItemResult:
+    instance_id: str
+    ocid: str
+    name: str
+    derived_app_url: str | None
+    outcome: str
+    message: str | None
+
+
+@dataclass
+class AppUrlBackfillResult:
+    total: int
+    processed: int
+    updated: int
+    skipped_existing: int
+    unresolved: int
+    failed: int
+    items: list[AppUrlBackfillItemResult]
+
+
+@dataclass
+class AppUrlBackfillProgressSnapshot:
+    total: int
+    processed: int
+    updated: int
+    skipped_existing: int
+    unresolved: int
+    failed: int
+    current_instance_name: str | None
+
+
 class InstanceService:
+    _start_attempt_lock = Lock()
+    _last_start_attempt_by_instance_id: dict[str, float] = {}
+
     def __init__(self, session: Session, oci_service: OCIService) -> None:
         self.session = session
         self.instances = InstanceRepository(session)
@@ -132,7 +195,13 @@ class InstanceService:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Instance OCID already registered")
         if payload.compartment_id and self.session.get(Compartment, payload.compartment_id) is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Compartment not found")
-        return self.instances.create(payload)
+        prepared_payload = self._prepare_instance_create_payload(payload)
+        self._ensure_app_url_unique(prepared_payload.app_url)
+        try:
+            return self.instances.create(prepared_payload)
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Instance app_url already registered") from exc
 
     def get_import_preview(self, instance_ocid: str) -> InstanceImportPreview:
         existing = self.instances.get_by_ocid(instance_ocid)
@@ -141,6 +210,11 @@ class InstanceService:
             return InstanceImportPreview(
                 name=existing.name,
                 ocid=existing.ocid,
+                app_url=existing.app_url,
+                environment=existing.environment,
+                customer_name=existing.customer_name,
+                domain=existing.domain,
+                name_prefix=existing.name_prefix,
                 vcpu=existing.vcpu,
                 memory_gbs=existing.memory_gbs,
                 vnic_id=existing.vnic_id,
@@ -160,9 +234,15 @@ class InstanceService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
         compartment = self._ensure_compartment_cached(details.compartment_ocid)
+        routing = self.derive_routing_fields(details.name)
         return InstanceImportPreview(
             name=details.name,
             ocid=details.ocid,
+            app_url=routing.app_url,
+            environment=routing.environment,
+            customer_name=routing.customer_name,
+            domain=routing.domain,
+            name_prefix=routing.name_prefix,
             vcpu=details.vcpu,
             memory_gbs=details.memory_gbs,
             vnic_id=vnic_id,
@@ -174,12 +254,21 @@ class InstanceService:
             already_registered=False,
         )
 
-    def import_instance(self, ocid: str, description: str | None, enabled: bool) -> Instance:
+    def import_instance(self, ocid: str, description: str | None, enabled: bool, app_url: str | None = None) -> Instance:
         if self.instances.get_by_ocid(ocid):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Instance OCID already registered")
 
         preview = self.get_import_preview(ocid)
         compartment = self._ensure_compartment_cached(preview.compartment_ocid, preview.compartment_name)
+        routing = self._resolve_routing_fields(
+            preview.name,
+            app_url=app_url,
+            environment=preview.environment,
+            customer_name=preview.customer_name,
+            domain=preview.domain,
+            name_prefix=preview.name_prefix,
+        )
+        self._ensure_app_url_unique(routing.app_url)
         created = self.instances.create(
             InstanceCreate(
                 name=preview.name,
@@ -187,6 +276,11 @@ class InstanceService:
                 compartment_id=compartment.id,
                 description=description,
                 enabled=enabled,
+                app_url=routing.app_url,
+                environment=routing.environment,
+                customer_name=routing.customer_name,
+                domain=routing.domain,
+                name_prefix=routing.name_prefix,
             )
         )
         created, _ = self.instances.apply_updates(
@@ -206,7 +300,323 @@ class InstanceService:
         instance = self.get_instance(instance_id)
         if payload.compartment_id and self.session.get(Compartment, payload.compartment_id) is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Compartment not found")
-        return self.instances.update(instance, payload)
+        update_data = payload.model_dump(exclude_none=True)
+        next_name = update_data.get("name", instance.name)
+        routing = self._resolve_routing_fields(
+            next_name,
+            app_url=update_data.get("app_url", instance.app_url),
+            environment=update_data.get("environment", instance.environment),
+            customer_name=update_data.get("customer_name", instance.customer_name),
+            domain=update_data.get("domain", instance.domain),
+            name_prefix=update_data.get("name_prefix", instance.name_prefix),
+        )
+        update_data["app_url"] = routing.app_url
+        update_data["environment"] = routing.environment
+        update_data["customer_name"] = routing.customer_name
+        update_data["domain"] = routing.domain
+        update_data["name_prefix"] = routing.name_prefix
+        self._ensure_app_url_unique(routing.app_url, excluding_instance_id=instance.id)
+        try:
+            return self.instances.update(instance, InstanceUpdate(**update_data))
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Instance app_url already registered") from exc
+
+    def resolve_for_proxy(self, host: str, cooldown_seconds: int = 60) -> ProxyResolveResult:
+        normalized_host = self._normalize_app_url(host)
+        if not normalized_host:
+            return ProxyResolveResult(
+                decision="error",
+                instance_id=None,
+                ocid=None,
+                state=None,
+                message="Invalid host",
+                retry_after_seconds=30,
+            )
+        instance = self.instances.get_by_app_url(normalized_host)
+        if instance is None:
+            return ProxyResolveResult(
+                decision="not_found",
+                instance_id=None,
+                ocid=None,
+                state=None,
+                message="No mapped instance for host",
+                retry_after_seconds=60,
+            )
+        if not instance.enabled:
+            return ProxyResolveResult(
+                decision="error",
+                instance_id=instance.id,
+                ocid=instance.ocid,
+                state=instance.last_known_state,
+                message="Instance is disabled",
+                retry_after_seconds=60,
+            )
+        status_result = self.oci_service.get_status(instance.ocid)
+        if not status_result.success:
+            logger.warning(
+                "proxy_resolve_status_failed host=%s instance_id=%s ocid=%s error=%s",
+                normalized_host,
+                instance.id,
+                instance.ocid,
+                status_result.parsed_error or status_result.stderr,
+            )
+            return ProxyResolveResult(
+                decision="error",
+                instance_id=instance.id,
+                ocid=instance.ocid,
+                state=instance.last_known_state,
+                message=status_result.parsed_error or status_result.stderr or "status_check_failed",
+                retry_after_seconds=30,
+            )
+        next_state = status_result.state or instance.last_known_state
+        self._update_last_known_state(instance, next_state)
+        if next_state == "RUNNING":
+            logger.info("proxy_resolve_pass host=%s instance_id=%s ocid=%s", normalized_host, instance.id, instance.ocid)
+            return ProxyResolveResult(
+                decision="pass",
+                instance_id=instance.id,
+                ocid=instance.ocid,
+                state=next_state,
+                message="Instance is running",
+            )
+        if next_state in {"STARTING", "PROVISIONING"}:
+            return ProxyResolveResult(
+                decision="wait",
+                instance_id=instance.id,
+                ocid=instance.ocid,
+                state=next_state,
+                message="Instance is starting",
+                retry_after_seconds=30,
+            )
+        if next_state == "STOPPED":
+            if not self._can_trigger_start(instance.id, cooldown_seconds=max(cooldown_seconds, 0)):
+                return ProxyResolveResult(
+                    decision="wait",
+                    instance_id=instance.id,
+                    ocid=instance.ocid,
+                    state="STARTING",
+                    message="Start already requested recently",
+                    retry_after_seconds=max(cooldown_seconds, 1),
+                )
+            start_result = self.oci_service.start_instance(instance.ocid)
+            if not start_result.success:
+                logger.warning(
+                    "proxy_resolve_start_failed host=%s instance_id=%s ocid=%s error=%s",
+                    normalized_host,
+                    instance.id,
+                    instance.ocid,
+                    start_result.parsed_error or start_result.stderr,
+                )
+                return ProxyResolveResult(
+                    decision="error",
+                    instance_id=instance.id,
+                    ocid=instance.ocid,
+                    state=next_state,
+                    message=start_result.parsed_error or start_result.stderr or "start_failed",
+                    retry_after_seconds=30,
+                )
+            start_state = start_result.state or "STARTING"
+            self._update_last_known_state(instance, start_state)
+            logger.info(
+                "proxy_resolve_wait_start_requested host=%s instance_id=%s ocid=%s state=%s",
+                normalized_host,
+                instance.id,
+                instance.ocid,
+                start_state,
+            )
+            return ProxyResolveResult(
+                decision="wait",
+                instance_id=instance.id,
+                ocid=instance.ocid,
+                state=start_state,
+                message="Start command requested",
+                retry_after_seconds=30,
+            )
+        return ProxyResolveResult(
+            decision="wait",
+            instance_id=instance.id,
+            ocid=instance.ocid,
+            state=next_state,
+            message="Instance not ready",
+            retry_after_seconds=30,
+        )
+
+    def backfill_missing_app_urls(
+        self,
+        progress_callback: Callable[[AppUrlBackfillProgressSnapshot], None] | None = None,
+        job_id: str | None = None,
+    ) -> AppUrlBackfillResult:
+        # Target only legacy rows with missing host mapping.
+        missing = [item for item in self.instances.list() if not item.app_url or not item.app_url.strip()]
+        total = len(missing)
+        processed = 0
+        updated = 0
+        skipped_existing = 0
+        unresolved = 0
+        failed = 0
+        current_instance_name: str | None = None
+        items: list[AppUrlBackfillItemResult] = []
+
+        def emit_progress() -> None:
+            if progress_callback is None:
+                return
+            progress_callback(
+                AppUrlBackfillProgressSnapshot(
+                    total=total,
+                    processed=processed,
+                    updated=updated,
+                    skipped_existing=skipped_existing,
+                    unresolved=unresolved,
+                    failed=failed,
+                    current_instance_name=current_instance_name,
+                )
+            )
+
+        logger.info("app_url_backfill_started job_id=%s total_missing=%s", job_id or "sync", total)
+        emit_progress()
+
+        for instance in missing:
+            current_instance_name = instance.name
+            derived = self.derive_routing_fields(instance.name)
+            try:
+                latest = self.instances.get(instance.id)
+                if latest is None:
+                    failed += 1
+                    items.append(
+                        AppUrlBackfillItemResult(
+                            instance_id=instance.id,
+                            ocid=instance.ocid,
+                            name=instance.name,
+                            derived_app_url=derived.app_url,
+                            outcome="failed",
+                            message="instance_not_found_during_backfill",
+                        )
+                    )
+                    continue
+
+                if latest.app_url and latest.app_url.strip():
+                    skipped_existing += 1
+                    items.append(
+                        AppUrlBackfillItemResult(
+                            instance_id=latest.id,
+                            ocid=latest.ocid,
+                            name=latest.name,
+                            derived_app_url=derived.app_url,
+                            outcome="skipped_existing",
+                            message="app_url_already_set",
+                        )
+                    )
+                    continue
+
+                if not derived.app_url:
+                    unresolved += 1
+                    items.append(
+                        AppUrlBackfillItemResult(
+                            instance_id=latest.id,
+                            ocid=latest.ocid,
+                            name=latest.name,
+                            derived_app_url=None,
+                            outcome="unresolved",
+                            message="could_not_derive_app_url_from_instance_name",
+                        )
+                    )
+                    continue
+
+                mapped = self.instances.get_by_app_url(derived.app_url)
+                if mapped is not None and mapped.id != latest.id:
+                    unresolved += 1
+                    items.append(
+                        AppUrlBackfillItemResult(
+                            instance_id=latest.id,
+                            ocid=latest.ocid,
+                            name=latest.name,
+                            derived_app_url=derived.app_url,
+                            outcome="unresolved",
+                            message=f"app_url_conflict_with_instance_id:{mapped.id}",
+                        )
+                    )
+                    continue
+
+                _, changed = self.instances.apply_updates(
+                    latest,
+                    {
+                        "app_url": derived.app_url,
+                        "environment": latest.environment or derived.environment,
+                        "customer_name": latest.customer_name or derived.customer_name,
+                        "domain": latest.domain or derived.domain,
+                        "name_prefix": latest.name_prefix or derived.name_prefix,
+                    },
+                )
+                if changed:
+                    updated += 1
+                    items.append(
+                        AppUrlBackfillItemResult(
+                            instance_id=latest.id,
+                            ocid=latest.ocid,
+                            name=latest.name,
+                            derived_app_url=derived.app_url,
+                            outcome="updated",
+                            message=None,
+                        )
+                    )
+                else:
+                    skipped_existing += 1
+                    items.append(
+                        AppUrlBackfillItemResult(
+                            instance_id=latest.id,
+                            ocid=latest.ocid,
+                            name=latest.name,
+                            derived_app_url=derived.app_url,
+                            outcome="skipped_existing",
+                            message="no_changes_required",
+                        )
+                    )
+            except Exception as exc:
+                self.session.rollback()
+                failed += 1
+                logger.exception(
+                    "app_url_backfill_item_failed job_id=%s instance_id=%s ocid=%s error=%s",
+                    job_id or "sync",
+                    instance.id,
+                    instance.ocid,
+                    str(exc),
+                )
+                items.append(
+                    AppUrlBackfillItemResult(
+                        instance_id=instance.id,
+                        ocid=instance.ocid,
+                        name=instance.name,
+                        derived_app_url=derived.app_url,
+                        outcome="failed",
+                        message=str(exc),
+                    )
+                )
+            finally:
+                processed += 1
+                emit_progress()
+
+        current_instance_name = None
+        result = AppUrlBackfillResult(
+            total=total,
+            processed=processed,
+            updated=updated,
+            skipped_existing=skipped_existing,
+            unresolved=unresolved,
+            failed=failed,
+            items=items,
+        )
+        logger.info(
+            "app_url_backfill_finished job_id=%s total=%s processed=%s updated=%s skipped_existing=%s unresolved=%s failed=%s",
+            job_id or "sync",
+            result.total,
+            result.processed,
+            result.updated,
+            result.skipped_existing,
+            result.unresolved,
+            result.failed,
+        )
+        return result
 
     def delete_instance(self, instance_id: str, *, actor_email: str | None = None, actor_user_id: str | None = None) -> None:
         instance = self.get_instance(instance_id)
@@ -597,12 +1007,28 @@ class InstanceService:
         private_ip: str | None,
         oci_created_at: datetime | None,
     ) -> str:
+        routing = self.derive_routing_fields(name)
+        if routing.app_url:
+            mapped = self.instances.get_by_app_url(routing.app_url)
+            if mapped is not None and mapped.ocid != ocid:
+                routing = InstanceRoutingData(
+                    app_url=None,
+                    environment=routing.environment,
+                    customer_name=routing.customer_name,
+                    domain=routing.domain,
+                    name_prefix=routing.name_prefix,
+                )
         existing = self.instances.get_by_ocid(ocid)
         if existing is None:
             self.instances.create(
                 InstanceCreate(
                     name=name,
                     ocid=ocid,
+                    app_url=routing.app_url,
+                    environment=routing.environment,
+                    customer_name=routing.customer_name,
+                    domain=routing.domain,
+                    name_prefix=routing.name_prefix,
                     compartment_id=compartment_id,
                     description=None,
                     enabled=True,
@@ -627,17 +1053,190 @@ class InstanceService:
         _, changed = self.instances.apply_updates(
             existing,
             {
-            "name": name,
-            "compartment_id": compartment_id,
-            "vcpu": vcpu,
+                "name": name,
+                "compartment_id": compartment_id,
+                "vcpu": vcpu,
                 "memory_gbs": memory_gbs,
                 "vnic_id": vnic_id,
                 "public_ip": public_ip,
                 "private_ip": private_ip,
                 "oci_created_at": oci_created_at,
+                "environment": existing.environment or routing.environment,
+                "customer_name": existing.customer_name or routing.customer_name,
+                "domain": existing.domain or routing.domain,
+                "name_prefix": existing.name_prefix or routing.name_prefix,
+                "app_url": existing.app_url or routing.app_url,
             },
         )
         return "updated" if changed else "unchanged"
+
+    def _prepare_instance_create_payload(self, payload: InstanceCreate) -> InstanceCreate:
+        routing = self._resolve_routing_fields(
+            payload.name,
+            app_url=payload.app_url,
+            environment=payload.environment,
+            customer_name=payload.customer_name,
+            domain=payload.domain,
+            name_prefix=payload.name_prefix,
+        )
+        return payload.model_copy(
+            update={
+                "app_url": routing.app_url,
+                "environment": routing.environment,
+                "customer_name": routing.customer_name,
+                "domain": routing.domain,
+                "name_prefix": routing.name_prefix,
+            }
+        )
+
+    def _resolve_routing_fields(
+        self,
+        name: str,
+        *,
+        app_url: str | None,
+        environment: str | None,
+        customer_name: str | None,
+        domain: str | None,
+        name_prefix: str | None,
+    ) -> InstanceRoutingData:
+        derived = self.derive_routing_fields(name)
+        return InstanceRoutingData(
+            app_url=self._normalize_app_url(app_url) or derived.app_url,
+            environment=self._normalize_environment(environment) or derived.environment,
+            customer_name=self._normalize_customer_name(customer_name) or derived.customer_name,
+            domain=self._normalize_domain(domain) or derived.domain,
+            name_prefix=self._normalize_name_prefix(name_prefix) or derived.name_prefix,
+        )
+
+    @classmethod
+    def derive_routing_fields(cls, instance_name: str) -> InstanceRoutingData:
+        normalized_name = instance_name.strip()
+        upper = normalized_name.upper()
+        environment: str | None = None
+        marker_index = -1
+        marker_size = 0
+        if "HMG-" in upper:
+            environment = "HMG"
+            marker_index = upper.index("HMG-")
+            marker_size = 4
+        elif "PRD-" in upper:
+            environment = "PRD"
+            marker_index = upper.index("PRD-")
+            marker_size = 4
+
+        customer_name: str | None = None
+        if marker_index >= 0:
+            raw_customer = normalized_name[marker_index + marker_size :].strip()
+            customer_name = cls._normalize_customer_name(raw_customer)
+
+        domain: str | None = None
+        name_prefix: str | None = None
+        if upper.startswith("OCIXDOC"):
+            name_prefix = "OCIXDOC"
+            domain = "docnix.com.br"
+        elif upper.startswith("OCIXPM"):
+            name_prefix = "OCIXPM"
+            domain = "pmrun.com.br"
+        elif "-" in normalized_name:
+            name_prefix = normalized_name.split("-", 1)[0].strip().upper() or None
+
+        app_url: str | None = None
+        if customer_name and domain:
+            app_host = f"{customer_name}hmg.{domain}" if environment == "HMG" else f"{customer_name}.{domain}"
+            app_url = cls._normalize_app_url(app_host)
+
+        return InstanceRoutingData(
+            app_url=app_url,
+            environment=environment,
+            customer_name=customer_name,
+            domain=domain,
+            name_prefix=name_prefix,
+        )
+
+    def _ensure_app_url_unique(self, app_url: str | None, excluding_instance_id: str | None = None) -> None:
+        if not app_url:
+            return
+        existing = self.instances.get_by_app_url(app_url)
+        if existing is None:
+            return
+        if excluding_instance_id and existing.id == excluding_instance_id:
+            return
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Instance app_url already registered")
+
+    def _update_last_known_state(self, instance: Instance, next_state: str | None) -> None:
+        if next_state is None or instance.last_known_state == next_state:
+            return
+        instance.last_known_state = next_state
+        self.session.add(instance)
+        self.session.commit()
+
+    @classmethod
+    def _can_trigger_start(cls, instance_id: str, cooldown_seconds: int) -> bool:
+        if cooldown_seconds <= 0:
+            return True
+        now = time.monotonic()
+        with cls._start_attempt_lock:
+            last = cls._last_start_attempt_by_instance_id.get(instance_id)
+            if last is not None and (now - last) < cooldown_seconds:
+                return False
+            cls._last_start_attempt_by_instance_id[instance_id] = now
+            # Drop stale keys to avoid unbounded growth.
+            stale_limit = now - max(cooldown_seconds * 5, 300)
+            stale_keys = [key for key, value in cls._last_start_attempt_by_instance_id.items() if value < stale_limit]
+            for key in stale_keys:
+                del cls._last_start_attempt_by_instance_id[key]
+            return True
+
+    @staticmethod
+    def _normalize_customer_name(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if not normalized:
+            return None
+        normalized = re.sub(r"[^a-z0-9-]+", "-", normalized)
+        normalized = re.sub(r"-{2,}", "-", normalized).strip("-")
+        return normalized or None
+
+    @staticmethod
+    def _normalize_environment(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().upper()
+        return normalized if normalized in {"HMG", "PRD"} else None
+
+    @staticmethod
+    def _normalize_domain(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower().rstrip(".")
+        if not normalized:
+            return None
+        if not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,63}", normalized):
+            return None
+        return normalized
+
+    @staticmethod
+    def _normalize_name_prefix(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().upper()
+        return normalized or None
+
+    @staticmethod
+    def _normalize_app_url(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if not normalized:
+            return None
+        normalized = re.sub(r"^https?://", "", normalized)
+        normalized = normalized.split("/", 1)[0].strip().rstrip(".")
+        if ":" in normalized:
+            normalized = normalized.split(":", 1)[0]
+        if not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,63}", normalized):
+            return None
+        return normalized
 
     def _execute_action(self, instance: Instance, action: str, source: ExecutionSource) -> ExecutionLog:
         if not instance.enabled:

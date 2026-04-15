@@ -51,3 +51,7 @@ class ScheduleRepository:
     def delete(self, schedule: Schedule) -> None:
         self.session.delete(schedule)
         self.session.commit()
+
+    def exists_by_group_id(self, group_id: str) -> bool:
+        statement = select(Schedule.id).where(Schedule.group_id == group_id).limit(1)
+        return self.session.scalar(statement) is not None

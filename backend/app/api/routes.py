@@ -13,9 +13,11 @@ from app.api.deps import (
     get_group_service,
     get_import_job_service,
     get_instance_service,
+    get_app_url_backfill_job_service,
     get_schedule_service,
 )
 from app.core.security import CurrentUser, get_current_user, require_any_permission, require_permission
+from app.core.security import require_proxy_api_key
 from app.repositories.execution_repository import ExecutionRepository
 from app.schemas.access_control import (
     AccessGroupCreate,
@@ -47,6 +49,10 @@ from app.schemas.execution import ExecutionLogRead
 from app.schemas.group import GroupCreate, GroupRead, GroupTreeCompartmentRead, GroupTreeInstanceRead, GroupUpdate
 from app.schemas.instance import (
     CompartmentInstancesImportRead,
+    AppUrlBackfillJobCreateRead,
+    AppUrlBackfillJobStatusRead,
+    AppUrlBackfillItemRead,
+    AppUrlBackfillResultRead,
     ImportInstancesJobCreateRead,
     ImportInstancesJobStatusRead,
     InstanceActionResult,
@@ -57,6 +63,7 @@ from app.schemas.instance import (
     InstanceStatusRefreshRead,
     InstanceUpdate,
     InstanceVnicRead,
+    ProxyResolveRead,
     VnicDetailsRead,
 )
 from app.schemas.schedule import ScheduleCreate, ScheduleRead, ScheduleUpdate
@@ -67,11 +74,13 @@ from app.services.compartment_service import CompartmentService
 from app.services.deskmanager_service import DeskManagerService
 from app.services.group_service import GroupService
 from app.services.import_job_service import ImportJobService
+from app.services.app_url_backfill_job_service import AppUrlBackfillJobService
 from app.services.instance_service import InstanceService
 from app.services.oci_cli import OCIService, get_oci_service
 from app.services.schedule_service import ScheduleService
 from app.db.session import get_db_session
 from sqlalchemy.orm import Session
+from app.core.config import Settings, get_settings
 
 
 router = APIRouter(prefix="/api")
@@ -244,6 +253,24 @@ def logout_auth(
         user_agent=request.headers.get("user-agent"),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/proxy/resolve", response_model=ProxyResolveRead)
+def resolve_proxy_host(
+    host: str,
+    _: None = Depends(require_proxy_api_key),
+    settings: Settings = Depends(get_settings),
+    service: InstanceService = Depends(get_instance_service),
+) -> ProxyResolveRead:
+    result = service.resolve_for_proxy(host=host, cooldown_seconds=max(0, settings.proxy_start_cooldown_seconds))
+    return ProxyResolveRead(
+        decision=result.decision,
+        instance_id=result.instance_id,
+        ocid=result.ocid,
+        state=result.state,
+        message=result.message,
+        retry_after_seconds=result.retry_after_seconds,
+    )
 
 
 @router.post("/auth/page-access", status_code=status.HTTP_204_NO_CONTENT)
@@ -533,6 +560,65 @@ def get_import_all_compartment_instances_job(
     )
 
 
+@router.post("/instances/app-url-backfill/jobs", response_model=AppUrlBackfillJobCreateRead, status_code=status.HTTP_202_ACCEPTED)
+def create_app_url_backfill_job(
+    _: CurrentUser = Depends(require_permission("instances.manage")),
+    service: AppUrlBackfillJobService = Depends(get_app_url_backfill_job_service),
+) -> AppUrlBackfillJobCreateRead:
+    job = service.start_job()
+    return AppUrlBackfillJobCreateRead(job_id=job.job_id, status=job.status, started_at=job.started_at)
+
+
+@router.get("/instances/app-url-backfill/jobs/{job_id}", response_model=AppUrlBackfillJobStatusRead)
+def get_app_url_backfill_job(
+    job_id: str,
+    _: CurrentUser = Depends(require_permission("instances.manage")),
+    service: AppUrlBackfillJobService = Depends(get_app_url_backfill_job_service),
+) -> AppUrlBackfillJobStatusRead:
+    try:
+        job = service.get_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="App URL backfill job not found") from exc
+
+    result = None
+    if job.result is not None:
+        result = AppUrlBackfillResultRead(
+            total=job.result.total,
+            processed=job.result.processed,
+            updated=job.result.updated,
+            skipped_existing=job.result.skipped_existing,
+            unresolved=job.result.unresolved,
+            failed=job.result.failed,
+            items=[
+                AppUrlBackfillItemRead(
+                    instance_id=item.instance_id,
+                    ocid=item.ocid,
+                    name=item.name,
+                    derived_app_url=item.derived_app_url,
+                    outcome=item.outcome,
+                    message=item.message,
+                )
+                for item in job.result.items
+            ],
+        )
+
+    return AppUrlBackfillJobStatusRead(
+        job_id=job.job_id,
+        status=job.status,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        total=job.total,
+        processed=job.processed,
+        updated=job.updated,
+        skipped_existing=job.skipped_existing,
+        unresolved=job.unresolved,
+        failed=job.failed,
+        current_instance_name=job.current_instance_name,
+        result=result,
+        error=job.error,
+    )
+
+
 @router.get("/compartiments/instances/{instance_ocid}/vnic", response_model=InstanceVnicRead)
 def get_instance_vnic(
     instance_ocid: str,
@@ -576,7 +662,7 @@ def import_instance(
     _: CurrentUser = Depends(require_permission("instances.manage")),
     service: InstanceService = Depends(get_instance_service),
 ) -> InstanceRead:
-    return InstanceRead.model_validate(service.import_instance(payload.ocid, payload.description, payload.enabled))
+    return InstanceRead.model_validate(service.import_instance(payload.ocid, payload.description, payload.enabled, payload.app_url))
 
 
 @router.put("/instances/{instance_id}", response_model=InstanceRead)

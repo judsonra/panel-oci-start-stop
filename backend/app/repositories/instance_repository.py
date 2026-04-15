@@ -24,6 +24,10 @@ class InstanceRepository:
     def get_by_ocid(self, ocid: str) -> Instance | None:
         return self.session.scalar(select(Instance).where(Instance.ocid == ocid))
 
+    def get_by_app_url(self, app_url: str) -> Instance | None:
+        normalized = app_url.strip().lower().rstrip(".")
+        return self.session.scalar(select(Instance).where(Instance.app_url == normalized))
+
     def create(self, payload: InstanceCreate) -> Instance:
         instance = Instance(**payload.model_dump())
         self.session.add(instance)

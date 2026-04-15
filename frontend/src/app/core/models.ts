@@ -2,6 +2,11 @@ export interface InstanceModel {
     id: string;
     name: string;
     ocid: string;
+    app_url?: string | null;
+    environment?: 'HMG' | 'PRD' | string | null;
+    customer_name?: string | null;
+    domain?: string | null;
+    name_prefix?: string | null;
     compartment_id?: string | null;
     description?: string | null;
     enabled: boolean;
@@ -19,6 +24,11 @@ export interface InstanceModel {
 export interface InstanceImportPreviewModel {
     name: string;
     ocid: string;
+    app_url?: string | null;
+    environment?: 'HMG' | 'PRD' | string | null;
+    customer_name?: string | null;
+    domain?: string | null;
+    name_prefix?: string | null;
     vcpu?: number | null;
     memory_gbs?: number | null;
     vnic_id?: string | null;

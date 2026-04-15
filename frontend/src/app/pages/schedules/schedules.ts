@@ -9,6 +9,7 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService } from 'primeng/api';
 import { DatePickerModule } from 'primeng/datepicker';
+import { DialogModule } from 'primeng/dialog';
 import { InputMaskModule } from 'primeng/inputmask';
 import { MessageModule } from 'primeng/message';
 import { MultiSelectModule } from 'primeng/multiselect';
@@ -18,6 +19,7 @@ import { TabsModule } from 'primeng/tabs';
 import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
 import { ApiService } from '@/app/core/api.service';
+import { AuthService } from '@/app/core/auth.service';
 import { GroupModel, InstanceModel, ScheduleModel } from '@/app/core/models';
 
 type ScheduleTypeValue = 'one_time' | 'weekly' | 'monthly';
@@ -74,6 +76,7 @@ interface NormalizedScheduleFormValue {
         CheckboxModule,
         ConfirmDialogModule,
         DatePickerModule,
+        DialogModule,
         InputMaskModule,
         MessageModule,
         MultiSelectModule,
@@ -117,6 +120,169 @@ interface NormalizedScheduleFormValue {
         </section>
 
         <p-confirmdialog></p-confirmdialog>
+        <p-dialog
+            header="Editar agendamento"
+            [visible]="editDialogVisible()"
+            [modal]="true"
+            [draggable]="false"
+            [resizable]="false"
+            [style]="{ width: 'min(56rem, 96vw)' }"
+            appendTo="body"
+            (onHide)="closeEditDialog()"
+        >
+            <form class="form-panel" [formGroup]="form" (ngSubmit)="save()">
+                <p-tabs [value]="createTargetTab()" (valueChange)="setCreateTargetTab($event)">
+                    <p-tablist>
+                        <p-tab [value]="0">Instância</p-tab>
+                        <p-tab [value]="1">Grupo de instância</p-tab>
+                    </p-tablist>
+                    <p-tabpanels>
+                        <p-tabpanel [value]="0">
+                            <label>
+                                <span>Instância</span>
+                                <p-autocomplete
+                                    formControlName="instance"
+                                    [suggestions]="instanceSuggestions()"
+                                    optionLabel="name"
+                                    [dropdown]="true"
+                                    dropdownMode="blank"
+                                    [completeOnFocus]="true"
+                                    [showClear]="true"
+                                    [forceSelection]="true"
+                                    placeholder="Selecione pelo nome da instância"
+                                    (completeMethod)="filterInstances($event)"
+                                />
+                            </label>
+                        </p-tabpanel>
+                        <p-tabpanel [value]="1">
+                            <label>
+                                <span>Grupo de instância</span>
+                                <p-autocomplete
+                                    formControlName="group"
+                                    [suggestions]="groupSuggestions()"
+                                    optionLabel="name"
+                                    [dropdown]="true"
+                                    dropdownMode="blank"
+                                    [completeOnFocus]="true"
+                                    [showClear]="true"
+                                    [forceSelection]="true"
+                                    placeholder="Selecione pelo nome do grupo"
+                                    (completeMethod)="filterGroups($event)"
+                                />
+                            </label>
+                        </p-tabpanel>
+                    </p-tabpanels>
+                </p-tabs>
+
+                <label>
+                    <span>Tipo</span>
+                    <select formControlName="type" (change)="onTypeChange()">
+                        <option value="one_time">Execução única</option>
+                        <option value="weekly">Semanal</option>
+                        <option value="monthly">Mensal</option>
+                    </select>
+                </label>
+
+                <label>
+                    <span>Ação</span>
+                    <select formControlName="action">
+                        <option value="start">Start</option>
+                        <option value="stop">Stop</option>
+                        <option value="restart">Restart</option>
+                    </select>
+                </label>
+
+                @if (isOneTime()) {
+                    <label>
+                        <span>Data</span>
+                        <p-datepicker
+                            formControlName="run_at_utc"
+                            inputId="schedule-run-at-input-modal"
+                            [showIcon]="true"
+                            [showButtonBar]="true"
+                            appendTo="body"
+                            dateFormat="dd/mm/yy"
+                        />
+                    </label>
+                }
+
+                @if (isOneTime()) {
+                    <label>
+                        <span>Hora</span>
+                        <p-inputmask
+                            [ngModel]="runTimeInput()"
+                            (ngModelChange)="onRunTimeInputChange($event)"
+                            [ngModelOptions]="{ standalone: true }"
+                            mask="99:99"
+                            slotChar="hh:mm"
+                            placeholder="hh:mm"
+                            [autoClear]="false"
+                        />
+                    </label>
+                }
+
+                @if (isWeekly()) {
+                    <label>
+                        <span>Dias da semana</span>
+                        <p-multiselect
+                            formControlName="days_of_week"
+                            [options]="dayOptions"
+                            optionLabel="label"
+                            optionValue="value"
+                            placeholder="Selecione os dias"
+                            appendTo="body"
+                        />
+                    </label>
+                }
+
+                @if (isMonthly()) {
+                    <div class="month-days-panel">
+                        <span>Dias do mês</span>
+                        <div class="month-days-grid">
+                            @for (day of monthDayOptions; track day) {
+                                <button
+                                    pButton
+                                    type="button"
+                                    class="month-day-button"
+                                    [label]="day.toString()"
+                                    [severity]="isMonthDaySelected(day) ? 'primary' : 'secondary'"
+                                    [outlined]="!isMonthDaySelected(day)"
+                                    (click)="toggleMonthDay(day)"
+                                ></button>
+                            }
+                        </div>
+                        <div class="month-day-actions">
+                            <button pButton type="button" label="Limpar" severity="secondary" [text]="true" (click)="clearMonthDays()"></button>
+                        </div>
+                    </div>
+                }
+
+                @if (isWeekly() || isMonthly()) {
+                    <label>
+                        <span>Horário UTC</span>
+                        <p-inputmask
+                            [ngModel]="scheduledTimeInput()"
+                            (ngModelChange)="onScheduledTimeInputChange($event)"
+                            [ngModelOptions]="{ standalone: true }"
+                            mask="99:99"
+                            slotChar="hh:mm"
+                            placeholder="hh:mm"
+                            [autoClear]="false"
+                        />
+                    </label>
+                }
+
+                <label class="checkbox-row">
+                    <p-checkbox formControlName="enabled" [binary]="true" inputId="schedule-enabled-modal"></p-checkbox>
+                    <span>Agendamento habilitado</span>
+                </label>
+
+                <div class="form-actions">
+                    <button pButton type="submit" label="Salvar edição" icon="pi pi-save" [disabled]="saving()"></button>
+                    <button pButton type="button" label="Fechar" severity="secondary" [outlined]="true" (click)="closeEditDialog()"></button>
+                </div>
+            </form>
+        </p-dialog>
 
         @if (feedback()) {
             <p-message [severity]="feedbackSeverity()" [text]="feedback() || ''"></p-message>
@@ -126,7 +292,9 @@ interface NormalizedScheduleFormValue {
             <p-tabs [value]="activeTab()" (valueChange)="setActiveTab($event)">
                 <p-tablist>
                     <p-tab [value]="0">Agendamentos</p-tab>
-                    <p-tab [value]="1">Novo agendamento</p-tab>
+                    @if (canManageSchedules()) {
+                        <p-tab [value]="1">Novo agendamento</p-tab>
+                    }
                 </p-tablist>
                 <p-tabpanels>
                     <p-tabpanel [value]="0">
@@ -157,23 +325,26 @@ interface NormalizedScheduleFormValue {
                                         <td class="schedule-execution-column">{{ executionLabel(schedule) }}</td>
                                         <td class="schedule-status-cell schedule-status-column">
                                             <p-tag [value]="schedule.enabled ? 'ON' : 'OFF'" [severity]="schedule.enabled ? 'success' : 'warn'"></p-tag>
-                                            <p-splitbutton
-                                                [label]="schedule.enabled ? 'Off' : 'On'"
-                                                [icon]="schedule.enabled ? 'pi pi-pause' : 'pi pi-play'"
-                                                size="small"
-                                                [model]="rowMenuActions(schedule)"
-                                                appendTo="body"
-                                                [disabled]="isRowBusy(schedule.id)"
-                                                (onClick)="toggleSchedule(schedule)"
-                                            ></p-splitbutton>
+                                            @if (canManageSchedules()) {
+                                                <p-splitbutton
+                                                    [label]="schedule.enabled ? 'Off' : 'On'"
+                                                    [icon]="schedule.enabled ? 'pi pi-pause' : 'pi pi-play'"
+                                                    size="small"
+                                                    [model]="rowMenuActions(schedule)"
+                                                    appendTo="body"
+                                                    [disabled]="isRowBusy(schedule.id)"
+                                                    (onClick)="toggleSchedule(schedule)"
+                                                ></p-splitbutton>
+                                            }
                                         </td>
                                     </tr>
                                 </ng-template>
                             </p-table>
                         </div>
                     </p-tabpanel>
-                    <p-tabpanel [value]="1">
-                        <form class="form-panel" [formGroup]="form" (ngSubmit)="save()">
+                    @if (canManageSchedules()) {
+                        <p-tabpanel [value]="1">
+                            <form class="form-panel" [formGroup]="form" (ngSubmit)="save()">
                             @if (editingScheduleId()) {
                                 <p-message severity="info" text="Editando agendamento selecionado."></p-message>
                             }
@@ -335,8 +506,9 @@ interface NormalizedScheduleFormValue {
                                     <button pButton type="button" label="Cancelar edição" severity="secondary" [outlined]="true" (click)="resetForm()"></button>
                                 }
                             </div>
-                        </form>
-                    </p-tabpanel>
+                            </form>
+                        </p-tabpanel>
+                    }
                 </p-tabpanels>
             </p-tabs>
         </section>
@@ -344,6 +516,7 @@ interface NormalizedScheduleFormValue {
 })
 export class SchedulesPage implements OnInit, OnDestroy {
     private readonly api = inject(ApiService);
+    private readonly auth = inject(AuthService);
     private readonly formBuilder = inject(FormBuilder);
     private readonly confirmationService = inject(ConfirmationService);
     private clockTimer: number | null = null;
@@ -359,6 +532,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
     readonly feedback = signal<string | null>(null);
     readonly feedbackSeverity = signal<'success' | 'error'>('success');
     readonly editingScheduleId = signal<string | null>(null);
+    readonly editDialogVisible = signal(false);
     readonly rowBusyIds = signal<Set<string>>(new Set());
     readonly activeTab = signal(0);
     readonly createTargetTab = signal<ScheduleTargetTabValue>(0);
@@ -374,6 +548,12 @@ export class SchedulesPage implements OnInit, OnDestroy {
             hour12: false
         })
     );
+    readonly canManageSchedules = computed(() => this.auth.hasPermission('schedules.manage'));
+    private createDraftBeforeEdit: ScheduleFormValue | null = null;
+    private createTargetTabBeforeEdit: ScheduleTargetTabValue = 0;
+    private runTimeInputBeforeEdit = '';
+    private scheduledTimeInputBeforeEdit = '';
+    private readonly rowActionCache = new Map<string, MenuItem[]>();
 
     readonly dayOptions: DayOption[] = [
         { label: 'Domingo', value: 6 },
@@ -499,6 +679,11 @@ export class SchedulesPage implements OnInit, OnDestroy {
     }
 
     save(): void {
+        if (!this.canManageSchedules()) {
+            this.feedbackSeverity.set('error');
+            this.feedback.set('Você não tem permissão para gerenciar agendamentos.');
+            return;
+        }
         this.clearFeedback();
 
         if (!this.validateFormByType() || this.form.invalid) {
@@ -508,6 +693,8 @@ export class SchedulesPage implements OnInit, OnDestroy {
 
         const raw = this.normalizeScheduleFormValue(this.form.getRawValue());
         const payload = this.editingScheduleId() ? this.buildUpdatePayload(raw) : this.buildCreatePayload(raw);
+        const isEditing = this.editingScheduleId() !== null;
+        const isEditingDialog = this.editDialogVisible();
 
         this.saving.set(true);
 
@@ -519,10 +706,14 @@ export class SchedulesPage implements OnInit, OnDestroy {
             next: (schedule) => {
                 this.feedbackSeverity.set('success');
                 this.feedback.set(this.editingScheduleId() ? 'Agendamento atualizado com sucesso.' : 'Agendamento salvo com sucesso.');
-                if (this.editingScheduleId()) {
+                if (isEditing) {
                     this.schedules.set(this.schedules().map((item) => (item.id === schedule.id ? schedule : item)));
                 } else {
                     this.schedules.set([schedule, ...this.schedules()]);
+                }
+                if (isEditingDialog) {
+                    this.closeEditDialog(true);
+                    return;
                 }
                 this.resetForm();
                 this.activeTab.set(0);
@@ -535,26 +726,68 @@ export class SchedulesPage implements OnInit, OnDestroy {
     }
 
     rowMenuActions(schedule: ScheduleModel): MenuItem[] {
-        return [
+        if (!this.canManageSchedules()) {
+            return [];
+        }
+        const cached = this.rowActionCache.get(schedule.id);
+        if (cached) {
+            return cached;
+        }
+        const actions: MenuItem[] = [
             {
                 label: 'Editar',
                 icon: 'pi pi-pencil',
-                command: (event) => {
-                    event?.originalEvent?.preventDefault?.();
-                    event?.originalEvent?.stopPropagation?.();
-                    this.editSchedule(schedule);
-                }
+                command: () => this.onEditActionById(schedule.id)
             },
             {
                 label: 'Excluir',
                 icon: 'pi pi-times',
-                command: (event) => {
-                    event?.originalEvent?.preventDefault?.();
-                    event?.originalEvent?.stopPropagation?.();
-                    this.confirmDelete(schedule);
-                }
+                command: () => this.onDeleteActionById(schedule.id)
             }
         ];
+        this.rowActionCache.set(schedule.id, actions);
+        return actions;
+    }
+
+    onEditAction(schedule: ScheduleModel): void {
+        this.editSchedule(schedule);
+    }
+
+    onDeleteAction(schedule: ScheduleModel): void {
+        this.confirmDelete(schedule);
+    }
+
+    onEditActionById(scheduleId: string): void {
+        const schedule = this.schedules().find((item) => item.id === scheduleId);
+        if (!schedule) {
+            this.feedbackSeverity.set('error');
+            this.feedback.set('Agendamento não encontrado para edição.');
+            return;
+        }
+        this.onEditAction(schedule);
+    }
+
+    onDeleteActionById(scheduleId: string): void {
+        const schedule = this.schedules().find((item) => item.id === scheduleId);
+        if (!schedule) {
+            this.feedbackSeverity.set('error');
+            this.feedback.set('Agendamento não encontrado para exclusão.');
+            return;
+        }
+        this.onDeleteAction(schedule);
+    }
+
+    closeEditDialog(preserveFeedback = false): void {
+        const hasOpenEditContext = this.editDialogVisible() || this.editingScheduleId() !== null || this.createDraftBeforeEdit !== null;
+        if (!hasOpenEditContext) {
+            return;
+        }
+        this.editDialogVisible.set(false);
+        this.editingScheduleId.set(null);
+        this.restoreCreateDraftAfterEdit();
+        if (!preserveFeedback) {
+            this.clearFeedback();
+        }
     }
 
     executionLabel(schedule: ScheduleModel): string {
@@ -605,6 +838,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
     editSchedule(schedule: ScheduleModel): void {
         const instance = schedule.instance_id ? this.instances().find((item) => item.id === schedule.instance_id) ?? null : null;
         const group = schedule.group_id ? this.groups().find((item) => item.id === schedule.group_id) ?? null : null;
+        this.captureCreateDraftForEdit();
         this.editingScheduleId.set(schedule.id);
         const runAtUtc = schedule.run_at_utc ? new Date(schedule.run_at_utc) : null;
         this.form.reset({
@@ -628,7 +862,7 @@ export class SchedulesPage implements OnInit, OnDestroy {
         this.groupSuggestions.set(this.groups());
         this.createTargetTab.set(schedule.target_type === 'group' ? 1 : 0);
         this.clearFeedback();
-        this.activeTab.set(1);
+        this.editDialogVisible.set(true);
         this.scheduleDateInputBinding();
     }
 
@@ -660,7 +894,12 @@ export class SchedulesPage implements OnInit, OnDestroy {
 
     setActiveTab(value: number | string | undefined): void {
         const nextValue = typeof value === 'number' ? value : Number(value ?? 0);
-        this.activeTab.set(Number.isNaN(nextValue) ? 0 : nextValue);
+        const normalizedValue = Number.isNaN(nextValue) ? 0 : nextValue;
+        if (!this.canManageSchedules() && normalizedValue === 1) {
+            this.activeTab.set(0);
+            return;
+        }
+        this.activeTab.set(normalizedValue);
     }
 
     setCreateTargetTab(value: number | string | undefined): void {
@@ -677,6 +916,11 @@ export class SchedulesPage implements OnInit, OnDestroy {
     }
 
     toggleSchedule(schedule: ScheduleModel): void {
+        if (!this.canManageSchedules()) {
+            this.feedbackSeverity.set('error');
+            this.feedback.set('Você não tem permissão para gerenciar agendamentos.');
+            return;
+        }
         this.clearFeedback();
         this.markRowBusy(schedule.id, true);
         this.api.updateSchedule(schedule.id, { enabled: !schedule.enabled }).subscribe({
@@ -686,15 +930,20 @@ export class SchedulesPage implements OnInit, OnDestroy {
                 this.feedback.set(`Agendamento ${updated.enabled ? 'ativado' : 'desativado'} com sucesso.`);
                 this.markRowBusy(schedule.id, false);
             },
-            error: (response: { error?: { detail?: string } }) => {
+            error: (response: { status?: number; error?: { detail?: string } }) => {
                 this.feedbackSeverity.set('error');
-                this.feedback.set(response.error?.detail ?? 'Não foi possível atualizar o agendamento.');
+                this.feedback.set(this.resolveActionError(response, 'atualizar o agendamento'));
                 this.markRowBusy(schedule.id, false);
             }
         });
     }
 
     private confirmDelete(schedule: ScheduleModel): void {
+        if (!this.canManageSchedules()) {
+            this.feedbackSeverity.set('error');
+            this.feedback.set('Você não tem permissão para gerenciar agendamentos.');
+            return;
+        }
         this.clearFeedback();
         this.confirmationService.confirm({
             message: `Deseja excluir o agendamento de ${this.scheduleDisplayName(schedule)}?`,
@@ -708,20 +957,29 @@ export class SchedulesPage implements OnInit, OnDestroy {
     }
 
     private deleteSchedule(schedule: ScheduleModel): void {
+        if (!this.canManageSchedules()) {
+            this.feedbackSeverity.set('error');
+            this.feedback.set('Você não tem permissão para gerenciar agendamentos.');
+            return;
+        }
         this.markRowBusy(schedule.id, true);
         this.api.deleteSchedule(schedule.id).subscribe({
             next: () => {
                 this.schedules.set(this.schedules().filter((item) => item.id !== schedule.id));
                 if (this.editingScheduleId() === schedule.id) {
-                    this.resetForm();
+                    if (this.editDialogVisible()) {
+                        this.closeEditDialog(true);
+                    } else {
+                        this.resetForm();
+                    }
                 }
                 this.feedbackSeverity.set('success');
                 this.feedback.set('Agendamento excluído com sucesso.');
                 this.markRowBusy(schedule.id, false);
             },
-            error: (response: { error?: { detail?: string } }) => {
+            error: (response: { status?: number; error?: { detail?: string } }) => {
                 this.feedbackSeverity.set('error');
-                this.feedback.set(response.error?.detail ?? 'Não foi possível excluir o agendamento.');
+                this.feedback.set(this.resolveActionError(response, 'excluir o agendamento'));
                 this.markRowBusy(schedule.id, false);
             }
         });
@@ -803,6 +1061,50 @@ export class SchedulesPage implements OnInit, OnDestroy {
 
     private clearFeedback(): void {
         this.feedback.set(null);
+    }
+
+    private captureCreateDraftForEdit(): void {
+        this.createDraftBeforeEdit = this.cloneScheduleFormValue(this.form.getRawValue());
+        this.createTargetTabBeforeEdit = this.createTargetTab();
+        this.runTimeInputBeforeEdit = this.runTimeInput();
+        this.scheduledTimeInputBeforeEdit = this.scheduledTimeInput();
+    }
+
+    private restoreCreateDraftAfterEdit(): void {
+        if (this.createDraftBeforeEdit) {
+            this.form.reset({
+                target_type: this.createDraftBeforeEdit.target_type ?? 'instance',
+                instance: this.createDraftBeforeEdit.instance ?? null,
+                instance_id: this.createDraftBeforeEdit.instance_id ?? '',
+                group: this.createDraftBeforeEdit.group ?? null,
+                group_id: this.createDraftBeforeEdit.group_id ?? '',
+                type: this.createDraftBeforeEdit.type ?? 'one_time',
+                action: this.createDraftBeforeEdit.action ?? 'start',
+                run_at_utc: this.createDraftBeforeEdit.run_at_utc ?? null,
+                run_time_utc: this.createDraftBeforeEdit.run_time_utc ?? null,
+                days_of_week: this.createDraftBeforeEdit.days_of_week ?? [],
+                days_of_month: this.createDraftBeforeEdit.days_of_month ?? [],
+                time_utc: this.createDraftBeforeEdit.time_utc ?? null,
+                enabled: this.createDraftBeforeEdit.enabled ?? true
+            });
+            this.createTargetTab.set(this.createTargetTabBeforeEdit);
+            this.runTimeInput.set(this.runTimeInputBeforeEdit);
+            this.scheduledTimeInput.set(this.scheduledTimeInputBeforeEdit);
+            this.instanceSuggestions.set(this.instances());
+            this.groupSuggestions.set(this.groups());
+            this.scheduleDateInputBinding();
+        }
+        this.createDraftBeforeEdit = null;
+        this.createTargetTabBeforeEdit = 0;
+        this.runTimeInputBeforeEdit = '';
+        this.scheduledTimeInputBeforeEdit = '';
+    }
+
+    private resolveActionError(response: { status?: number; error?: { detail?: string } }, operation: string): string {
+        if (response.status === 403) {
+            return 'Você não tem permissão para gerenciar agendamentos.';
+        }
+        return response.error?.detail ?? `Não foi possível ${operation}.`;
     }
 
     private markRowBusy(scheduleId: string, busy: boolean): void {
@@ -948,6 +1250,17 @@ export class SchedulesPage implements OnInit, OnDestroy {
             days_of_week: raw.days_of_week ?? [],
             days_of_month: raw.days_of_month ?? [],
             enabled: raw.enabled ?? true
+        };
+    }
+
+    private cloneScheduleFormValue(raw: ScheduleFormValue): ScheduleFormValue {
+        return {
+            ...raw,
+            run_at_utc: raw.run_at_utc ? new Date(raw.run_at_utc) : null,
+            run_time_utc: raw.run_time_utc ? new Date(raw.run_time_utc) : null,
+            time_utc: raw.time_utc ? new Date(raw.time_utc) : null,
+            days_of_week: raw.days_of_week ? [...raw.days_of_week] : [],
+            days_of_month: raw.days_of_month ? [...raw.days_of_month] : []
         };
     }
 

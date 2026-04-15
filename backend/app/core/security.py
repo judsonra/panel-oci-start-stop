@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Callable
+import hmac
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -75,3 +76,21 @@ def require_superadmin(current_user: CurrentUser = Depends(get_current_user)) ->
     if current_user.is_superadmin:
         return current_user
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Superadmin required")
+
+
+def require_proxy_api_key(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> None:
+    expected_key = settings.proxy_api_key.strip()
+    if not expected_key:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Proxy API key is not configured")
+
+    provided_key = (request.headers.get("x-proxy-key") or "").strip()
+    if not provided_key or not hmac.compare_digest(provided_key, expected_key):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid proxy key")
+
+    if settings.proxy_allowed_ips_list:
+        client_host = request.client.host if request.client else None
+        if not client_host or client_host not in settings.proxy_allowed_ips_list:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Proxy origin is not allowed")

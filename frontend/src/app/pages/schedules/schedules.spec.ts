@@ -1,7 +1,9 @@
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
 import { ConfirmationService } from 'primeng/api';
 import { ApiService } from '@/app/core/api.service';
+import { AuthService } from '@/app/core/auth.service';
 import { GroupModel, InstanceModel, ScheduleModel } from '@/app/core/models';
 import { SchedulesPage } from './schedules';
 
@@ -9,7 +11,19 @@ describe('SchedulesPage', () => {
     let fixture: ComponentFixture<SchedulesPage>;
     let component: SchedulesPage;
     let apiService: jasmine.SpyObj<ApiService>;
+    let authService: MockAuthService;
     let confirmationService: ConfirmationService;
+
+    class MockAuthService {
+        readonly canManage = signal(true);
+
+        hasPermission(permission: string): boolean {
+            if (permission === 'schedules.manage') {
+                return this.canManage();
+            }
+            return true;
+        }
+    }
 
     const instances: InstanceModel[] = [
         {
@@ -59,6 +73,7 @@ describe('SchedulesPage', () => {
 
     beforeEach(async () => {
         apiService = jasmine.createSpyObj<ApiService>('ApiService', ['listSchedules', 'listInstances', 'listGroups', 'createSchedule', 'updateSchedule', 'deleteSchedule']);
+        authService = new MockAuthService();
         apiService.listSchedules.and.returnValue(of([weeklySchedule]));
         apiService.listInstances.and.returnValue(of(instances));
         apiService.listGroups.and.returnValue(of(groups));
@@ -70,7 +85,10 @@ describe('SchedulesPage', () => {
 
         await TestBed.configureTestingModule({
             imports: [SchedulesPage],
-            providers: [{ provide: ApiService, useValue: apiService }]
+            providers: [
+                { provide: ApiService, useValue: apiService },
+                { provide: AuthService, useValue: authService }
+            ]
         }).compileComponents();
 
         fixture = TestBed.createComponent(SchedulesPage);
@@ -87,6 +105,14 @@ describe('SchedulesPage', () => {
         component.activeTab.set(1);
 
         component.setActiveTab(undefined);
+
+        expect(component.activeTab()).toBe(0);
+    });
+
+    it('keeps schedule list tab selected when user without manage permission tries to open form tab', () => {
+        authService.canManage.set(false);
+
+        component.setActiveTab(1);
 
         expect(component.activeTab()).toBe(0);
     });
@@ -266,7 +292,8 @@ describe('SchedulesPage', () => {
         expect(component.form.controls.instance_id.value).toBe('instance-1');
         expect(component.form.controls.action.value).toBe('restart');
         expect(component.form.controls.days_of_week.value).toEqual([0, 1, 2]);
-        expect(component.activeTab()).toBe(1);
+        expect(component.editDialogVisible()).toBeTrue();
+        expect(component.activeTab()).toBe(0);
     });
 
     it('loads a monthly schedule into the form for editing', () => {
@@ -356,7 +383,8 @@ describe('SchedulesPage', () => {
         actions[0].command?.({ originalEvent: new MouseEvent('click'), item: actions[0] });
 
         expect(component.editingScheduleId()).toBe('schedule-1');
-        expect(component.activeTab()).toBe(1);
+        expect(component.editDialogVisible()).toBeTrue();
+        expect(component.activeTab()).toBe(0);
     });
 
     it('updates the edited weekly schedule and returns to the schedules tab', () => {
@@ -380,6 +408,7 @@ describe('SchedulesPage', () => {
             days_of_month: null,
             time_utc: '14:30'
         });
+        expect(component.editDialogVisible()).toBeFalse();
         expect(component.activeTab()).toBe(0);
         expect(component.schedules()[0].enabled).toBeFalse();
     });
@@ -409,13 +438,37 @@ describe('SchedulesPage', () => {
         });
     });
 
-    it('returns to the schedules tab when cancelling an edit', () => {
+    it('closes edit dialog when cancelling an edit', () => {
         component.editSchedule(weeklySchedule);
 
-        component.resetForm();
+        component.closeEditDialog();
 
         expect(component.editingScheduleId()).toBeNull();
+        expect(component.editDialogVisible()).toBeFalse();
         expect(component.activeTab()).toBe(0);
+    });
+
+    it('restores create form draft after closing the edit dialog', () => {
+        component.activeTab.set(1);
+        component.form.patchValue({
+            target_type: 'instance',
+            instance: instances[1],
+            instance_id: 'instance-2',
+            type: 'weekly',
+            action: 'stop',
+            days_of_week: [1, 3],
+            enabled: true
+        });
+        component.scheduledTimeInput.set('08:30');
+        component.onScheduledTimeInputChange('08:30');
+
+        component.editSchedule(weeklySchedule);
+        component.closeEditDialog();
+
+        expect(component.form.controls.instance_id.value).toBe('instance-2');
+        expect(component.form.controls.action.value).toBe('stop');
+        expect(component.form.controls.days_of_week.value).toEqual([1, 3]);
+        expect(component.scheduledTimeInput()).toBe('08:30');
     });
 
     it('toggles a schedule on or off from the splitbutton primary action', () => {
@@ -425,10 +478,24 @@ describe('SchedulesPage', () => {
         expect(component.schedules()[0].enabled).toBeFalse();
     });
 
+    it('shows permission feedback when update returns 403', () => {
+        apiService.updateSchedule.and.returnValue(throwError(() => ({ status: 403 })));
+
+        component.toggleSchedule(weeklySchedule);
+
+        expect(component.feedback()).toBe('Você não tem permissão para gerenciar agendamentos.');
+    });
+
     it('keeps edit and delete options in the splitbutton menu', () => {
         const actions = component.rowMenuActions(weeklySchedule);
 
         expect(actions.map((item) => item.label)).toEqual(['Editar', 'Excluir']);
+    });
+
+    it('returns no row actions when user has no schedules.manage permission', () => {
+        authService.canManage.set(false);
+
+        expect(component.rowMenuActions(weeklySchedule)).toEqual([]);
     });
 
     it('requests confirmation before deleting a schedule', () => {
@@ -457,6 +524,15 @@ describe('SchedulesPage', () => {
 
     it('shows a utc clock display', () => {
         expect(component.utcClockDisplay()).toMatch(/^\d{2}:\d{2}:\d{2}$/);
+    });
+
+    it('shows schedules as read-only when user has no schedules.manage permission', () => {
+        authService.canManage.set(false);
+        fixture.detectChanges();
+
+        const host: HTMLElement = fixture.nativeElement;
+        expect(host.textContent).not.toContain('Novo agendamento');
+        expect(host.querySelector('p-splitbutton')).toBeNull();
     });
 
     it('renders ON/OFF status tags instead of a toggle switch', () => {

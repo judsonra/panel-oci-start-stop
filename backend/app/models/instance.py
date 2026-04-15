@@ -19,6 +19,11 @@ class Instance(UUIDMixin, TimestampMixin, Base):
 
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     ocid: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    app_url: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
+    environment: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)
+    customer_name: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    domain: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    name_prefix: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
     compartment_id: Mapped[str | None] = mapped_column(ForeignKey("compartments.id", ondelete="SET NULL"), index=True)
     description: Mapped[str | None] = mapped_column(Text())
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

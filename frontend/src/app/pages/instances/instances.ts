@@ -208,6 +208,48 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
             </ng-template>
         </p-dialog>
 
+        <p-dialog
+            header="Editar mapeamento da instância"
+            [visible]="mappingEditorVisible()"
+            [modal]="true"
+            [closable]="true"
+            [draggable]="false"
+            [resizable]="false"
+            [style]="{ width: '34rem', maxWidth: 'calc(100vw - 2rem)' }"
+            (visibleChange)="handleMappingEditorVisibility($event)"
+        >
+            <form class="form-panel" [formGroup]="mappingForm" (ngSubmit)="saveMapping()">
+                <label>
+                    <span>URL da aplicação</span>
+                    <input pInputText type="text" formControlName="app_url" placeholder="clientehmg.docnix.com.br" />
+                </label>
+                <label>
+                    <span>Ambiente</span>
+                    <select class="native-select" formControlName="environment">
+                        <option value="">Automático</option>
+                        <option value="HMG">HMG</option>
+                        <option value="PRD">PRD</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Cliente</span>
+                    <input pInputText type="text" formControlName="customer_name" placeholder="cliente-alpha" />
+                </label>
+                <label>
+                    <span>Domínio</span>
+                    <input pInputText type="text" formControlName="domain" placeholder="docnix.com.br" />
+                </label>
+                <label>
+                    <span>Prefixo do nome</span>
+                    <input pInputText type="text" formControlName="name_prefix" placeholder="OCIXDOC" />
+                </label>
+            </form>
+            <ng-template pTemplate="footer">
+                <button pButton type="button" label="Cancelar" severity="secondary" [outlined]="true" (click)="closeMappingEditor()"></button>
+                <button pButton type="button" label="Salvar" icon="pi pi-save" (click)="saveMapping()" [disabled]="mappingSaving() || !editingInstanceId()"></button>
+            </ng-template>
+        </p-dialog>
+
         <section class="instances-tabs-panel">
             <p-tabs [value]="activeTab()" (valueChange)="setActiveTab($event)">
                 <p-tablist>
@@ -261,9 +303,11 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                 <ng-template pTemplate="header">
                                     <tr>
                                         <th>Nome</th>
+                                        <th>URL</th>
                                         <th>OCID</th>
                                         <th>IP Privado</th>
                                         <th>Status</th>
+                                        <th>Mapeamento</th>
                                         <th>Habilitada</th>
                                         <th class="actions-column">Ações</th>
                                     </tr>
@@ -271,6 +315,7 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                 <ng-template pTemplate="body" let-instance>
                                     <tr>
                                         <td>{{ instance.name }}</td>
+                                        <td>{{ instance.app_url || '-' }}</td>
                                         <td class="ocid-cell">
                                             <div class="ocid-inline-actions">
                                                 <span>{{ formatOcid(instance.ocid) }}</span>
@@ -293,6 +338,12 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                         <td>{{ instance.private_ip || '-' }}</td>
                                         <td>
                                             <p-tag [severity]="tagSeverity(instance.last_known_state)" [value]="instance.last_known_state || 'UNKNOWN'"></p-tag>
+                                        </td>
+                                        <td>
+                                            <p-tag
+                                                [severity]="instance.app_url ? 'success' : 'warn'"
+                                                [value]="instance.app_url ? 'Completo' : 'Incompleto'"
+                                            ></p-tag>
                                         </td>
                                         <td>
                                             <p-toggleswitch
@@ -332,6 +383,18 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                                 <p-button
                                                     type="button"
                                                     size="small"
+                                                    severity="info"
+                                                    variant="outlined"
+                                                    icon="pi pi-pencil"
+                                                    pTooltip="Editar mapeamento"
+                                                    tooltipPosition="top"
+                                                    ariaLabel="Editar mapeamento"
+                                                    (onClick)="openMappingEditor(instance)"
+                                                    [disabled]="isStarting(instance.id)"
+                                                />
+                                                <p-button
+                                                    type="button"
+                                                    size="small"
                                                     severity="secondary"
                                                     variant="outlined"
                                                     icon="pi pi-refresh"
@@ -348,7 +411,7 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                 </ng-template>
                                 <ng-template pTemplate="emptymessage">
                                     <tr>
-                                        <td colspan="6">{{ showInitialLoadingHint() ? '' : 'Nenhuma instância cadastrada.' }}</td>
+                                        <td colspan="8">{{ showInitialLoadingHint() ? '' : 'Nenhuma instância cadastrada.' }}</td>
                                     </tr>
                                 </ng-template>
                             </p-table>
@@ -418,6 +481,11 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                 <textarea pTextarea formControlName="description" rows="4" placeholder="Contexto operacional ou observações"></textarea>
                             </label>
 
+                            <label>
+                                <span>URL da aplicação (opcional)</span>
+                                <input pInputText type="text" formControlName="app_url" placeholder="clientehmg.docnix.com.br" />
+                            </label>
+
                             <label class="checkbox-row">
                                 <input type="checkbox" formControlName="enabled" />
                                 <span>Instância habilitada para comandos</span>
@@ -478,6 +546,9 @@ export class InstancesPage implements OnInit, OnDestroy {
     readonly autoRegisterCompleted = signal(false);
     readonly autoRegisterConfirmationText = signal('');
     readonly startStatusAlert = signal<string | null>(null);
+    readonly mappingEditorVisible = signal(false);
+    readonly mappingSaving = signal(false);
+    readonly editingInstanceId = signal<string | null>(null);
     readonly isInitialLoadPending = computed(() => this.loading() && this.instances().length === 0);
     readonly showInitialLoadingHint = computed(() => this.isInitialLoadPending());
     readonly tableLoading = computed(() => this.loading() && this.instances().length > 0);
@@ -491,6 +562,7 @@ export class InstancesPage implements OnInit, OnDestroy {
             && !this.saving()
             && !this.importPreviewLoading()
             && this.form.controls.ocid.valid
+            && this.form.controls.app_url.valid
             && this.form.controls.ocid.value.trim() === preview.ocid;
     });
     readonly filteredInstances = computed(() => {
@@ -501,7 +573,7 @@ export class InstancesPage implements OnInit, OnDestroy {
         }
 
         return items.filter((instance) =>
-            [instance.name, instance.ocid, instance.public_ip ?? '', instance.private_ip ?? '']
+            [instance.name, instance.ocid, instance.app_url ?? '', instance.public_ip ?? '', instance.private_ip ?? '']
                 .some((value) => value.toLowerCase().includes(query))
         );
     });
@@ -531,7 +603,15 @@ export class InstancesPage implements OnInit, OnDestroy {
     readonly form = this.formBuilder.nonNullable.group({
         ocid: ['', [Validators.required, Validators.pattern(/^ocid1\.instance\..+/)]],
         description: [''],
+        app_url: ['', [Validators.pattern(/^[a-z0-9.-]+\.[a-z]{2,63}$/)]],
         enabled: [true]
+    });
+    readonly mappingForm = this.formBuilder.group({
+        app_url: this.formBuilder.control('', [Validators.required, Validators.pattern(/^[a-z0-9.-]+\.[a-z]{2,63}$/)]),
+        environment: this.formBuilder.control<string>(''),
+        customer_name: this.formBuilder.control<string>(''),
+        domain: this.formBuilder.control<string>(''),
+        name_prefix: this.formBuilder.control<string>(''),
     });
 
     ngOnInit(): void {
@@ -571,7 +651,12 @@ export class InstancesPage implements OnInit, OnDestroy {
             .getInstanceImportPreview(this.form.controls.ocid.value.trim())
             .pipe(finalize(() => this.importPreviewLoading.set(false)))
             .subscribe({
-                next: (preview) => this.importPreview.set(preview),
+                next: (preview) => {
+                    this.importPreview.set(preview);
+                    if (!this.form.controls.app_url.value.trim() && preview.app_url) {
+                        this.form.controls.app_url.setValue(preview.app_url);
+                    }
+                },
                 error: (response: { error?: ApiErrorResponse }) => {
                     this.error.set(response.error?.detail ?? 'Não foi possível consultar a instância na OCI.');
                 }
@@ -631,6 +716,66 @@ export class InstancesPage implements OnInit, OnDestroy {
         this.autoRegisterResult.set(null);
         this.autoRegisterJobStatus.set(null);
         this.autoRegisterProgressMessage.set('Preparando sincronização das instâncias...');
+    }
+
+    openMappingEditor(instance: InstanceModel): void {
+        this.error.set(null);
+        this.actionFeedback.set(null);
+        this.editingInstanceId.set(instance.id);
+        this.mappingForm.reset({
+            app_url: instance.app_url ?? '',
+            environment: instance.environment ?? '',
+            customer_name: instance.customer_name ?? '',
+            domain: instance.domain ?? '',
+            name_prefix: instance.name_prefix ?? '',
+        });
+        this.mappingEditorVisible.set(true);
+    }
+
+    handleMappingEditorVisibility(visible: boolean): void {
+        if (!visible) {
+            this.closeMappingEditor();
+        }
+    }
+
+    closeMappingEditor(): void {
+        this.mappingEditorVisible.set(false);
+        this.mappingSaving.set(false);
+        this.editingInstanceId.set(null);
+    }
+
+    saveMapping(): void {
+        const instanceId = this.editingInstanceId();
+        if (!instanceId) {
+            return;
+        }
+        if (this.mappingForm.invalid) {
+            this.mappingForm.markAllAsTouched();
+            return;
+        }
+        const payload = this.mappingForm.getRawValue();
+        this.mappingSaving.set(true);
+        this.api
+            .updateInstance(instanceId, {
+                app_url: payload.app_url?.trim() || null,
+                environment: payload.environment?.trim() || null,
+                customer_name: payload.customer_name?.trim() || null,
+                domain: payload.domain?.trim() || null,
+                name_prefix: payload.name_prefix?.trim() || null,
+            })
+            .pipe(finalize(() => this.mappingSaving.set(false)))
+            .subscribe({
+                next: (updatedInstance) => {
+                    this.instances.set(this.instances().map((item) => (item.id === updatedInstance.id ? updatedInstance : item)));
+                    this.actionFeedbackSeverity.set('success');
+                    this.actionFeedback.set('Mapeamento atualizado com sucesso.');
+                    this.closeMappingEditor();
+                },
+                error: (response: { error?: ApiErrorResponse }) => {
+                    this.actionFeedbackSeverity.set('error');
+                    this.actionFeedback.set(response.error?.detail ?? 'Não foi possível salvar o mapeamento da instância.');
+                },
+            });
     }
 
     confirmRefreshStatuses(): void {
@@ -706,7 +851,8 @@ export class InstancesPage implements OnInit, OnDestroy {
         const request$ = this.api.importInstance({
             ocid: payload.ocid,
             description: payload.description,
-            enabled: payload.enabled
+            enabled: payload.enabled,
+            app_url: payload.app_url?.trim() || null,
         });
 
         request$.pipe(finalize(() => this.saving.set(false))).subscribe({
@@ -1084,6 +1230,7 @@ export class InstancesPage implements OnInit, OnDestroy {
         this.form.reset({
             ocid: '',
             description: '',
+            app_url: '',
             enabled: true
         });
     }

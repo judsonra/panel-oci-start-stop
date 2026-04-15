@@ -29,7 +29,7 @@ class Schedule(UUIDMixin, TimestampMixin, Base):
 
     target_type: Mapped[ScheduleTargetType] = mapped_column(SqlEnum(ScheduleTargetType), nullable=False, default=ScheduleTargetType.instance)
     instance_id: Mapped[str | None] = mapped_column(ForeignKey("instances.id", ondelete="CASCADE"), nullable=True, index=True)
-    group_id: Mapped[str | None] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), nullable=True, index=True)
+    group_id: Mapped[str | None] = mapped_column(ForeignKey("groups.id", ondelete="RESTRICT"), nullable=True, index=True)
     type: Mapped[ScheduleType] = mapped_column(SqlEnum(ScheduleType), nullable=False)
     action: Mapped[ScheduleAction] = mapped_column(SqlEnum(ScheduleAction), nullable=False)
     run_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

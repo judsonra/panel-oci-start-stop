@@ -32,6 +32,8 @@ Aplicação full stack para cadastro, acionamento, agendamento e geração de re
 - Instâncias:
   - `GET /instances`
   - `POST /instances`
+  - `POST /instances/app-url-backfill/jobs`
+  - `GET /instances/app-url-backfill/jobs/{job_id}`
   - `GET /instances/import-preview/{instance_ocid}`
   - `POST /instances/import`
   - `PUT /instances/{instance_id}`

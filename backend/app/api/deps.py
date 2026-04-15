@@ -13,8 +13,10 @@ from app.services.instance_service import InstanceService
 from app.services.auth_service import AuthService
 from app.services.oci_cli import OCIService, get_oci_service
 from app.services.schedule_service import ScheduleService
+from app.services.app_url_backfill_job_service import AppUrlBackfillJobService
 
 import_job_service = ImportJobService()
+app_url_backfill_job_service = AppUrlBackfillJobService()
 
 
 def get_instance_service(
@@ -72,3 +74,7 @@ def get_deskmanager_service(
 
 def get_import_job_service() -> ImportJobService:
     return import_job_service
+
+
+def get_app_url_backfill_job_service() -> AppUrlBackfillJobService:
+    return app_url_backfill_job_service
