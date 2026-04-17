@@ -1,8 +1,6 @@
 #!/bin/sh
 set -eu
 
-LOCKFILE_HASH_FILE="node_modules/.package-lock.hash"
-CURRENT_HASH="$(sha256sum package.json package-lock.json | sha256sum | awk '{print $1}')"
 API_BASE_URL_VALUE="${API_BASE_URL:-http://localhost:8000/api}"
 REPORTS_API_BASE_URL_VALUE="${REPORTS_API_BASE_URL:-http://localhost:8010/api}"
 AUTH_ENTRA_ENABLED_VALUE="${ENTRA_AUTH_ENABLED:-false}"
@@ -13,13 +11,28 @@ ENTRA_REDIRECT_URI_VALUE="${ENTRA_REDIRECT_URI:-}"
 ENTRA_POST_LOGOUT_REDIRECT_URI_VALUE="${ENTRA_POST_LOGOUT_REDIRECT_URI:-}"
 ENTRA_SCOPES_VALUE="${ENTRA_SCOPES:-openid profile email}"
 
-if [ ! -d node_modules ] || [ ! -f "$LOCKFILE_HASH_FILE" ] || [ "$(cat "$LOCKFILE_HASH_FILE")" != "$CURRENT_HASH" ]; then
-    echo "Refreshing frontend dependencies with npm ci..."
-    npm ci
-    printf '%s' "$CURRENT_HASH" > "$LOCKFILE_HASH_FILE"
+if [ -f package.json ] && [ -f package-lock.json ]; then
+    LOCKFILE_HASH_FILE="node_modules/.package-lock.hash"
+    CURRENT_HASH="$(sha256sum package.json package-lock.json | sha256sum | awk '{print $1}')"
+
+    if [ ! -d node_modules ] || [ ! -f "$LOCKFILE_HASH_FILE" ] || [ "$(cat "$LOCKFILE_HASH_FILE")" != "$CURRENT_HASH" ]; then
+        echo "Refreshing frontend dependencies with npm ci..."
+        npm ci
+        printf '%s' "$CURRENT_HASH" > "$LOCKFILE_HASH_FILE"
+    fi
 fi
 
-cat > public/app-config.js <<EOF
+if [ -n "${FRONTEND_CONFIG_DIR:-}" ]; then
+    CONFIG_DIR="$FRONTEND_CONFIG_DIR"
+elif [ -f /usr/share/nginx/html/index.html ]; then
+    CONFIG_DIR="/usr/share/nginx/html"
+else
+    CONFIG_DIR="public"
+fi
+
+mkdir -p "$CONFIG_DIR"
+
+cat > "$CONFIG_DIR/app-config.js" <<EOF
 window.__APP_CONFIG__ = {
   apiBaseUrl: "${API_BASE_URL_VALUE}",
   reportsApiBaseUrl: "${REPORTS_API_BASE_URL_VALUE}",

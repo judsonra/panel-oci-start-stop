@@ -1,0 +1,9 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      target: runtime
+    command: ["nginx", "-g", "daemon off;"]
+    ports: !override
+      - "${FRONTEND_PORT:-4200}:80"
+    volumes: !override []

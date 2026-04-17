@@ -87,6 +87,12 @@ This now starts:
 - `reports`
 - `frontend`
 
+To run production mode (static frontend served by Nginx), use the override file:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
 If the frontend fails during build with a native Rollup dependency error, clean the local environment before rebuilding the image:
 
 ```bash
@@ -95,9 +101,9 @@ docker compose build frontend --no-cache
 docker compose up --build
 ```
 
-The `docker-compose` setup uses a dedicated volume for `/workspace/node_modules`, preventing host dependencies from being shared with the container.
+In development mode, the `docker-compose` setup uses a dedicated volume for `/workspace/node_modules`, preventing host dependencies from being shared with the container.
 
-After the migration to the Sakai-based frontend, the frontend container validates `package.json` and `package-lock.json` on startup. When dependencies change, it runs `npm ci` automatically inside the `frontend-node-modules` volume, avoiding failures caused by stale or incomplete volumes.
+After the migration to the Sakai-based frontend, the development frontend container validates `package.json` and `package-lock.json` on startup. When dependencies change, it runs `npm ci` automatically inside the `frontend-node-modules` volume, avoiding failures caused by stale or incomplete volumes.
 
 ## Backend
 
@@ -267,14 +273,14 @@ The application reads environment variables from `.env` and from `docker-compose
 | `DESKMANAGER_CATEGORIA_ID` | `backend` | Yes | `47859` | Value sent as `Categoria` when opening tickets. |
 | `DESKMANAGER_CATEGORIA_TIPO_ID` | `backend` | Yes | `47859` | Value sent as `CategoriaTipo` when opening tickets. |
 | `DESKMANAGER_GRUPO_ID` | `backend` | Yes | `000019` | Value sent as `Grupo` when opening tickets. |
-| `API_BASE_URL` | `frontend` | No | `http://localhost:8000/api` | Runtime frontend endpoint for the operational backend; injected into `public/app-config.js`. |
-| `REPORTS_API_BASE_URL` | `frontend` | No | `http://localhost:8010/api` | Runtime frontend endpoint for the `reports` microservice; injected into `public/app-config.js`. |
+| `API_BASE_URL` | `frontend` | No | `http://localhost:8000/api` | Runtime frontend endpoint for the operational backend; injected into `app-config.js`. |
+| `REPORTS_API_BASE_URL` | `frontend` | No | `http://localhost:8010/api` | Runtime frontend endpoint for the `reports` microservice; injected into `app-config.js`. |
 
 Important mappings:
 
 - `REPORTS_DATABASE_URL` is a Compose-level variable that becomes `DATABASE_URL` inside the `reports` container.
 - `REPORTS_OCI_TENANT_ID` is a Compose-level variable that becomes `OCI_TENANT_ID` inside the `reports` container.
-- `API_BASE_URL`, `REPORTS_API_BASE_URL`, `ENTRA_AUTH_ENABLED`, `LOCAL_ADMIN_ENABLED`, `ENTRA_AUTHORITY`, `ENTRA_CLIENT_ID`, `ENTRA_REDIRECT_URI`, `ENTRA_POST_LOGOUT_REDIRECT_URI`, and `ENTRA_SCOPES` are written at container startup into `frontend/public/app-config.js`.
+- `API_BASE_URL`, `REPORTS_API_BASE_URL`, `ENTRA_AUTH_ENABLED`, `LOCAL_ADMIN_ENABLED`, `ENTRA_AUTHORITY`, `ENTRA_CLIENT_ID`, `ENTRA_REDIRECT_URI`, `ENTRA_POST_LOGOUT_REDIRECT_URI`, and `ENTRA_SCOPES` are written at container startup into the frontend `app-config.js` (dev: `frontend/public/app-config.js`; production: `/usr/share/nginx/html/app-config.js` inside the container).
 
 ## Frontend Development
 
@@ -283,6 +289,8 @@ cd frontend
 npm install
 ng serve
 ```
+
+This workflow is development-only and does not require a local reverse proxy.
 
 Main commands:
 
@@ -299,6 +307,18 @@ Notes:
 - both runtime endpoints are exposed in `public/app-config.js`
 - the test standard follows the native Sakai/Angular approach with `ng test`
 - Microsoft Entra ID integration remains a future enhancement
+
+## Production Run (Static Frontend)
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+Notes:
+
+- in production, the frontend is served by Nginx from Angular static build artifacts
+- `ng serve` is not used in production, so `allowedHosts` validation does not apply
+- with an HTTPS reverse proxy, publish the frontend service and route `/` to it
 
 ## Tests
 
