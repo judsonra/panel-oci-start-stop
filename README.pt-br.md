@@ -275,6 +275,7 @@ A aplicação lê variáveis de ambiente a partir de `.env` e de `docker-compose
 | `DESKMANAGER_GRUPO_ID` | `backend` | Sim | `000019` | Valor enviado no campo `Grupo` ao abrir chamados. |
 | `API_BASE_URL` | `frontend` | Não | `http://localhost:8000/api` | Endpoint runtime do frontend para o backend operacional; injetado em `app-config.js`. |
 | `REPORTS_API_BASE_URL` | `frontend` | Não | `http://localhost:8010/api` | Endpoint runtime do frontend para o microserviço `reports`; injetado em `app-config.js`. |
+| `FRONTEND_PORT` | `frontend` (override `docker-compose.prod.yml`) | Não | `4200` | Porta publicada na máquina host para o frontend em produção (`${FRONTEND_PORT}:80`). |
 
 Mapeamentos importantes:
 

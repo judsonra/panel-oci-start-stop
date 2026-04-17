@@ -275,6 +275,7 @@ The application reads environment variables from `.env` and from `docker-compose
 | `DESKMANAGER_GRUPO_ID` | `backend` | Yes | `000019` | Value sent as `Grupo` when opening tickets. |
 | `API_BASE_URL` | `frontend` | No | `http://localhost:8000/api` | Runtime frontend endpoint for the operational backend; injected into `app-config.js`. |
 | `REPORTS_API_BASE_URL` | `frontend` | No | `http://localhost:8010/api` | Runtime frontend endpoint for the `reports` microservice; injected into `app-config.js`. |
+| `FRONTEND_PORT` | `frontend` (`docker-compose.prod.yml` override) | No | `4200` | Host-published port for the production frontend (`${FRONTEND_PORT}:80`). |
 
 Important mappings:
 
