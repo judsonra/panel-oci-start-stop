@@ -98,6 +98,7 @@ describe('InstancesPage', () => {
             of({
                 id: 'exec-2',
                 instance_id: 'instance-1',
+                instance_state: 'STOPPING',
                 action: 'stop',
                 source: 'manual',
                 status: 'success',
@@ -530,6 +531,13 @@ describe('InstancesPage', () => {
         expect(component.canStartInstance({ ...listedInstances[0], last_known_state: 'UNKNOWN' })).toBeFalse();
     });
 
+    it('only enables stop for enabled instances that are not STOPPED/STOPPING', () => {
+        expect(component.canStopInstance({ ...listedInstances[0], last_known_state: 'RUNNING' })).toBeTrue();
+        expect(component.canStopInstance({ ...listedInstances[0], enabled: false, last_known_state: 'RUNNING' })).toBeFalse();
+        expect(component.canStopInstance({ ...listedInstances[0], last_known_state: 'STOPPED' })).toBeFalse();
+        expect(component.canStopInstance({ ...listedInstances[0], last_known_state: 'STOPPING' })).toBeFalse();
+    });
+
     it('does not call start api when the instance is not eligible', () => {
         component.instances.set([{ ...listedInstances[0], last_known_state: 'RUNNING' }]);
 
@@ -540,10 +548,128 @@ describe('InstancesPage', () => {
 
     it('calls the api when starting and stopping an eligible instance', () => {
         component.start('instance-1');
+        component.instances.set([{ ...listedInstances[0], last_known_state: 'RUNNING' }]);
         component.stop('instance-1');
 
         expect(apiService.startInstance).toHaveBeenCalledWith('instance-1');
         expect(apiService.stopInstance).toHaveBeenCalledWith('instance-1');
+    });
+
+    it('updates local status to STOPPING and keeps stop lock active after stop command', () => {
+        component.instances.set([{ ...listedInstances[0], last_known_state: 'RUNNING' }]);
+
+        component.stop('instance-1');
+
+        expect(component.instances()[0].last_known_state).toBe('STOPPING');
+        expect(component.isStopping('instance-1')).toBeTrue();
+    });
+
+    it('polls status every 15 seconds after stop until reaching STOPPED', fakeAsync(() => {
+        component.instances.set([{ ...listedInstances[0], last_known_state: 'RUNNING' }]);
+        apiService.stopInstance.and.returnValue(
+            of({
+                id: 'exec-2',
+                instance_id: 'instance-1',
+                instance_state: 'STOPPING',
+                action: 'stop',
+                source: 'manual',
+                status: 'success',
+                started_at: '2026-03-12T00:00:00Z'
+            })
+        );
+        apiService.getInstanceStatus.and.returnValues(
+            of({
+                id: 'exec-status-1',
+                instance_id: 'instance-1',
+                instance_state: 'STOPPING',
+                action: 'status',
+                source: 'manual',
+                status: 'success',
+                started_at: '2026-03-12T00:00:00Z'
+            }),
+            of({
+                id: 'exec-status-2',
+                instance_id: 'instance-1',
+                instance_state: 'STOPPED',
+                action: 'status',
+                source: 'manual',
+                status: 'success',
+                started_at: '2026-03-12T00:00:00Z'
+            })
+        );
+
+        component.stop('instance-1');
+        expect(component.isStopping('instance-1')).toBeTrue();
+
+        tick(15000);
+        expect(apiService.getInstanceStatus).toHaveBeenCalledTimes(1);
+        expect(component.instances()[0].last_known_state).toBe('STOPPING');
+        expect(component.isStopping('instance-1')).toBeTrue();
+
+        tick(15000);
+        expect(apiService.getInstanceStatus).toHaveBeenCalledTimes(2);
+        expect(component.instances()[0].last_known_state).toBe('STOPPED');
+        expect(component.isStopping('instance-1')).toBeFalse();
+    }));
+
+    it('shows manual update alert after four status checks without STOPPED', fakeAsync(() => {
+        component.instances.set([{ ...listedInstances[0], last_known_state: 'RUNNING' }]);
+        apiService.stopInstance.and.returnValue(
+            of({
+                id: 'exec-2',
+                instance_id: 'instance-1',
+                instance_state: 'STOPPING',
+                action: 'stop',
+                source: 'manual',
+                status: 'success',
+                started_at: '2026-03-12T00:00:00Z'
+            })
+        );
+        apiService.getInstanceStatus.and.returnValues(
+            of({ id: 'exec-status-1', instance_id: 'instance-1', instance_state: 'STOPPING', action: 'status', source: 'manual', status: 'success', started_at: '2026-03-12T00:00:00Z' }),
+            of({ id: 'exec-status-2', instance_id: 'instance-1', instance_state: 'STOPPING', action: 'status', source: 'manual', status: 'success', started_at: '2026-03-12T00:00:00Z' }),
+            of({ id: 'exec-status-3', instance_id: 'instance-1', instance_state: 'STOPPING', action: 'status', source: 'manual', status: 'success', started_at: '2026-03-12T00:00:00Z' }),
+            of({ id: 'exec-status-4', instance_id: 'instance-1', instance_state: 'STOPPING', action: 'status', source: 'manual', status: 'success', started_at: '2026-03-12T00:00:00Z' })
+        );
+
+        component.stop('instance-1');
+
+        tick(15000);
+        tick(15000);
+        tick(15000);
+        tick(15000);
+        fixture.detectChanges();
+
+        expect(apiService.getInstanceStatus).toHaveBeenCalledTimes(4);
+        expect(component.isStopping('instance-1')).toBeFalse();
+        expect(component.stopStatusAlert()).toBe('Atualizar manualmente o status da Teste');
+        expect(fixture.nativeElement.textContent).toContain('Atualizar manualmente o status da Teste');
+    }));
+
+    it('removes stop lock when stop request fails', () => {
+        component.instances.set([{ ...listedInstances[0], last_known_state: 'RUNNING' }]);
+        apiService.stopInstance.and.returnValue(throwError(() => ({ error: { detail: 'stop_failed' } })));
+
+        component.stop('instance-1');
+
+        expect(component.isStopping('instance-1')).toBeFalse();
+        expect(component.actionFeedback()).toBe('stop_failed');
+    });
+
+    it('disables start/stop/edit/refresh actions while stopping is in progress', () => {
+        component.instances.set([{ ...listedInstances[0], last_known_state: 'RUNNING' }]);
+        component.stoppingIds.set(new Set(['instance-1']));
+        fixture.detectChanges();
+
+        const startButton = fixture.nativeElement.querySelector('button[aria-label="Ligar"]') as HTMLButtonElement;
+        const stopButton = fixture.nativeElement.querySelector('button[aria-label="Desligar"]') as HTMLButtonElement;
+        const editButton = fixture.nativeElement.querySelector('button[aria-label="Editar mapeamento"]') as HTMLButtonElement;
+        const refreshButton = fixture.nativeElement.querySelector('button[aria-label="Atualizar status"]') as HTMLButtonElement;
+
+        expect(startButton.disabled).toBeTrue();
+        expect(stopButton.disabled).toBeTrue();
+        expect(editButton.disabled).toBeTrue();
+        expect(refreshButton.disabled).toBeTrue();
     });
 
     it('updates the local status from the start response immediately', () => {

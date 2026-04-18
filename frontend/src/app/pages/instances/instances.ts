@@ -283,6 +283,25 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                 </button>
                             </aside>
                         }
+                        @if (stopStatusAlert()) {
+                            <aside class="instances-slide-alert" role="alert" aria-live="assertive">
+                                <div class="instances-slide-alert-copy">
+                                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                                    <span>{{ stopStatusAlert() }}</span>
+                                </div>
+                                <button
+                                    pButton
+                                    type="button"
+                                    icon="pi pi-times"
+                                    text
+                                    rounded
+                                    severity="secondary"
+                                    ariaLabel="Fechar alerta"
+                                    (click)="dismissStopStatusAlert()"
+                                >
+                                </button>
+                            </aside>
+                        }
 
                         <section class="table-filter-row instances-filter-row">
                             <input
@@ -377,8 +396,9 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                                     pTooltip="Desligar"
                                                     tooltipPosition="top"
                                                     ariaLabel="Desligar"
+                                                    [loading]="isStopping(instance.id)"
                                                     (onClick)="stop(instance.id)"
-                                                    [disabled]="!instance.enabled || isStarting(instance.id)"
+                                                    [disabled]="!canStopInstance(instance)"
                                                 />
                                                 <p-button
                                                     type="button"
@@ -390,7 +410,7 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                                     tooltipPosition="top"
                                                     ariaLabel="Editar mapeamento"
                                                     (onClick)="openMappingEditor(instance)"
-                                                    [disabled]="isStarting(instance.id)"
+                                                    [disabled]="isStarting(instance.id) || isStopping(instance.id)"
                                                 />
                                                 <p-button
                                                     type="button"
@@ -403,7 +423,7 @@ import { ApiErrorResponse, ImportAllCompartmentsJobStatusModel, ImportAllCompart
                                                     ariaLabel="Atualizar status"
                                                     [loading]="isRefreshingRow(instance.id)"
                                                     (onClick)="refreshInstanceStatus(instance)"
-                                                    [disabled]="!instance.enabled || isRefreshingRow(instance.id) || isStarting(instance.id)"
+                                                    [disabled]="!instance.enabled || isRefreshingRow(instance.id) || isStarting(instance.id) || isStopping(instance.id)"
                                                 />
                                             </div>
                                         </td>
@@ -515,6 +535,7 @@ export class InstancesPage implements OnInit, OnDestroy {
     private readonly formBuilder = inject(FormBuilder);
     private autoRegisterPollingSubscription: Subscription | null = null;
     private readonly startStatusPollingSubscriptions = new Map<string, Subscription>();
+    private readonly stopStatusPollingSubscriptions = new Map<string, Subscription>();
     private readonly startStatusPollIntervalMs = 15000;
     private readonly maxStartStatusChecks = 4;
 
@@ -530,6 +551,7 @@ export class InstancesPage implements OnInit, OnDestroy {
     readonly togglingIds = signal<Set<string>>(new Set());
     readonly refreshingRowIds = signal<Set<string>>(new Set());
     readonly startingIds = signal<Set<string>>(new Set());
+    readonly stoppingIds = signal<Set<string>>(new Set());
     readonly refreshConfirmationVisible = signal(false);
     readonly refreshProgressVisible = signal(false);
     readonly refreshingStatuses = signal(false);
@@ -546,6 +568,7 @@ export class InstancesPage implements OnInit, OnDestroy {
     readonly autoRegisterCompleted = signal(false);
     readonly autoRegisterConfirmationText = signal('');
     readonly startStatusAlert = signal<string | null>(null);
+    readonly stopStatusAlert = signal<string | null>(null);
     readonly mappingEditorVisible = signal(false);
     readonly mappingSaving = signal(false);
     readonly editingInstanceId = signal<string | null>(null);
@@ -622,6 +645,7 @@ export class InstancesPage implements OnInit, OnDestroy {
     ngOnDestroy(): void {
         this.stopAutomaticRegistrationPolling();
         this.cancelAllStartStatusPolling();
+        this.cancelAllStopStatusPolling();
     }
 
     loadInstances(): void {
@@ -908,7 +932,43 @@ export class InstancesPage implements OnInit, OnDestroy {
     }
 
     stop(instanceId: string): void {
-        this.handleInstanceAction(instanceId, 'stop');
+        const instance = this.instances().find((item) => item.id === instanceId);
+        if (!instance || !this.canStopInstance(instance)) {
+            return;
+        }
+
+        this.stopStatusAlert.set(null);
+        this.startStatusAlert.set(null);
+        this.actionFeedback.set(null);
+        this.error.set(null);
+        this.markStopping(instance.id, true);
+        this.cancelStopStatusPolling(instance.id);
+
+        this.api.stopInstance(instance.id).subscribe({
+            next: (execution) => {
+                const fallbackState = execution.status === 'failed' ? (instance.last_known_state ?? null) : 'STOPPING';
+                const nextState = execution.instance_state ?? fallbackState;
+                this.updateInstanceState(instance.id, nextState);
+                this.actionFeedbackSeverity.set(execution.status === 'failed' ? 'error' : 'success');
+                this.actionFeedback.set(
+                    execution.status === 'failed'
+                        ? execution.stderr_summary || 'A operação retornou falha no backend.'
+                        : `Comando de desligamento enviado com sucesso para ${instance.name}.`
+                );
+
+                if (execution.status === 'failed' || nextState === 'STOPPED') {
+                    this.markStopping(instance.id, false);
+                    return;
+                }
+
+                this.scheduleStopStatusCheck(instance.id, instance.name, 1);
+            },
+            error: (response: { error?: ApiErrorResponse }) => {
+                this.actionFeedbackSeverity.set('error');
+                this.actionFeedback.set(response.error?.detail ?? 'Falha ao executar a ação na instância.');
+                this.markStopping(instance.id, false);
+            }
+        });
     }
 
     async copyOcid(ocid?: string | null): Promise<void> {
@@ -940,12 +1000,28 @@ export class InstancesPage implements OnInit, OnDestroy {
         return this.startingIds().has(instanceId);
     }
 
+    isStopping(instanceId: string): boolean {
+        return this.stoppingIds().has(instanceId);
+    }
+
     canStartInstance(instance: InstanceModel): boolean {
-        return instance.enabled && instance.last_known_state === 'STOPPED' && !this.isStarting(instance.id);
+        return instance.enabled && instance.last_known_state === 'STOPPED' && !this.isStarting(instance.id) && !this.isStopping(instance.id);
+    }
+
+    canStopInstance(instance: InstanceModel): boolean {
+        return instance.enabled
+            && instance.last_known_state !== 'STOPPED'
+            && instance.last_known_state !== 'STOPPING'
+            && !this.isStarting(instance.id)
+            && !this.isStopping(instance.id);
     }
 
     dismissStartStatusAlert(): void {
         this.startStatusAlert.set(null);
+    }
+
+    dismissStopStatusAlert(): void {
+        this.stopStatusAlert.set(null);
     }
 
     setActiveTab(value: string | number | undefined): void {
@@ -1119,29 +1195,6 @@ export class InstancesPage implements OnInit, OnDestroy {
         );
     }
 
-    private handleInstanceAction(instanceId: string, action: 'start' | 'stop'): void {
-        this.actionFeedback.set(null);
-        this.error.set(null);
-
-        const request$ = action === 'start' ? this.api.startInstance(instanceId) : this.api.stopInstance(instanceId);
-        request$.subscribe({
-            next: (execution) => {
-                this.actionFeedbackSeverity.set(execution.status === 'failed' ? 'error' : 'success');
-                this.actionFeedback.set(
-                    execution.status === 'failed'
-                        ? execution.stderr_summary || 'A operação retornou falha no backend.'
-                        : `Comando ${action === 'start' ? 'de inicialização' : 'de desligamento'} enviado com sucesso.`
-                );
-                this.loadInstances();
-            },
-            error: (response: { error?: ApiErrorResponse }) => {
-                this.actionFeedbackSeverity.set('error');
-                this.actionFeedback.set(response.error?.detail ?? 'Falha ao executar a ação na instância.');
-                this.loadInstances();
-            }
-        });
-    }
-
     private markToggling(instanceId: string, toggling: boolean): void {
         const next = new Set(this.togglingIds());
         if (toggling) {
@@ -1170,6 +1223,16 @@ export class InstancesPage implements OnInit, OnDestroy {
             next.delete(instanceId);
         }
         this.startingIds.set(next);
+    }
+
+    private markStopping(instanceId: string, stopping: boolean): void {
+        const next = new Set(this.stoppingIds());
+        if (stopping) {
+            next.add(instanceId);
+        } else {
+            next.delete(instanceId);
+        }
+        this.stoppingIds.set(next);
     }
 
     private updateInstanceState(instanceId: string, nextState: string | null): void {
@@ -1223,6 +1286,55 @@ export class InstancesPage implements OnInit, OnDestroy {
             subscription.unsubscribe();
         }
         this.startStatusPollingSubscriptions.clear();
+    }
+
+    private scheduleStopStatusCheck(instanceId: string, instanceName: string, attempt: number): void {
+        this.cancelStopStatusPolling(instanceId);
+
+        const subscription = timer(this.startStatusPollIntervalMs)
+            .pipe(switchMap(() => this.api.getInstanceStatus(instanceId)))
+            .subscribe({
+                next: (execution) => {
+                    const nextState = execution.instance_state ?? null;
+                    this.updateInstanceState(instanceId, nextState);
+
+                    if (nextState === 'STOPPED') {
+                        this.markStopping(instanceId, false);
+                        this.cancelStopStatusPolling(instanceId);
+                        return;
+                    }
+
+                    if (attempt >= this.maxStartStatusChecks) {
+                        this.markStopping(instanceId, false);
+                        this.cancelStopStatusPolling(instanceId);
+                        this.stopStatusAlert.set(`Atualizar manualmente o status da ${instanceName}`);
+                        return;
+                    }
+
+                    this.scheduleStopStatusCheck(instanceId, instanceName, attempt + 1);
+                },
+                error: (response: { error?: ApiErrorResponse }) => {
+                    this.cancelStopStatusPolling(instanceId);
+                    this.markStopping(instanceId, false);
+                    this.actionFeedbackSeverity.set('error');
+                    this.actionFeedback.set(response.error?.detail ?? 'Não foi possível atualizar o status da instância.');
+                }
+            });
+
+        this.stopStatusPollingSubscriptions.set(instanceId, subscription);
+    }
+
+    private cancelStopStatusPolling(instanceId: string): void {
+        const current = this.stopStatusPollingSubscriptions.get(instanceId);
+        current?.unsubscribe();
+        this.stopStatusPollingSubscriptions.delete(instanceId);
+    }
+
+    private cancelAllStopStatusPolling(): void {
+        for (const subscription of this.stopStatusPollingSubscriptions.values()) {
+            subscription.unsubscribe();
+        }
+        this.stopStatusPollingSubscriptions.clear();
     }
 
     private resetForm(): void {
