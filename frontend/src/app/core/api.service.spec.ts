@@ -133,6 +133,7 @@ describe('ApiService', () => {
 
     it('uses the backend api prefix for instance import preview and import endpoints', () => {
         service.getInstanceImportPreview('ocid1.instance.oc1..preview').subscribe();
+        service.importUpsertInstance({ ocid: 'ocid1.instance.oc1..preview' }).subscribe();
         service.importInstance({ ocid: 'ocid1.instance.oc1..preview', description: 'desc', enabled: true }).subscribe();
 
         const previewRequest = httpMock.expectOne('http://localhost:8000/api/instances/import-preview/ocid1.instance.oc1..preview');
@@ -143,6 +144,20 @@ describe('ApiService', () => {
             compartment_ocid: 'ocid1.compartment.oc1..aaaa',
             compartment_name: 'Compartment A',
             already_registered: false
+        });
+
+        const upsertRequest = httpMock.expectOne('http://localhost:8000/api/instances/import-upsert');
+        expect(upsertRequest.request.method).toBe('POST');
+        expect(upsertRequest.request.body).toEqual({ ocid: 'ocid1.instance.oc1..preview' });
+        upsertRequest.flush({
+            mode: 'not_registered',
+            preview: {
+                name: 'Instance A1',
+                ocid: 'ocid1.instance.oc1..preview',
+                compartment_ocid: 'ocid1.compartment.oc1..aaaa',
+                compartment_name: 'Compartment A',
+                already_registered: false
+            }
         });
 
         const importRequest = httpMock.expectOne('http://localhost:8000/api/instances/import');

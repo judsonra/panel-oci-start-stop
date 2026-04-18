@@ -198,3 +198,82 @@ def test_list_instances_by_compartment_command_generation_and_parsing():
     assert result[0].ocid == "ocid1.instance.oc1..a"
     assert result[0].lifecycle_state == "RUNNING"
     assert run_mock.call_args.args[0][:4] == ["oci", "compute", "instance", "list"]
+
+
+def test_get_instance_details_parses_payload_with_nested_data():
+    service = OCIService(make_settings())
+    with patch("app.services.oci_cli.shutil.which", return_value="/usr/bin/oci"):
+        with patch("app.services.oci_cli.Path.is_file", return_value=True):
+            with patch.object(OCIService, "resolved_key_file", return_value="/tmp/mock-oci/api.pem"):
+                with patch("app.services.oci_cli.subprocess.run") as run_mock:
+                    run_mock.return_value = SimpleNamespace(
+                        returncode=0,
+                        stdout='{"data":{"name":"VM A","id":"ocid1.instance.oc1..a","compartmentId":"ocid1.compartment.oc1..aaaa","vcpus":2,"memory":12,"created":"2026-03-20T10:00:00+00:00"}}',
+                        stderr="",
+                    )
+                    result = service.get_instance_details("ocid1.instance.oc1..a")
+    assert result.name == "VM A"
+    assert result.ocid == "ocid1.instance.oc1..a"
+    assert result.compartment_ocid == "ocid1.compartment.oc1..aaaa"
+    assert result.vcpu == 2.0
+    assert result.memory_gbs == 12.0
+    assert result.oci_created_at is not None
+    assert run_mock.call_args.args[0][:4] == ["oci", "compute", "instance", "get"]
+
+
+def test_get_instance_details_parses_payload_without_nested_data():
+    service = OCIService(make_settings())
+    with patch("app.services.oci_cli.shutil.which", return_value="/usr/bin/oci"):
+        with patch("app.services.oci_cli.Path.is_file", return_value=True):
+            with patch.object(OCIService, "resolved_key_file", return_value="/tmp/mock-oci/api.pem"):
+                with patch("app.services.oci_cli.subprocess.run") as run_mock:
+                    run_mock.return_value = SimpleNamespace(
+                        returncode=0,
+                        stdout='{"name":"VM B","id":"ocid1.instance.oc1..b","compartmentId":"ocid1.compartment.oc1..bbbb","vcpus":4,"memory":24,"created":"2026-03-21T10:00:00+00:00"}',
+                        stderr="",
+                    )
+                    result = service.get_instance_details("ocid1.instance.oc1..b")
+    assert result.name == "VM B"
+    assert result.ocid == "ocid1.instance.oc1..b"
+    assert result.compartment_ocid == "ocid1.compartment.oc1..bbbb"
+    assert result.vcpu == 4.0
+    assert result.memory_gbs == 24.0
+    assert result.oci_created_at is not None
+
+
+def test_get_instance_details_raises_when_payload_has_no_object_data():
+    service = OCIService(make_settings())
+    with patch("app.services.oci_cli.shutil.which", return_value="/usr/bin/oci"):
+        with patch("app.services.oci_cli.Path.is_file", return_value=True):
+            with patch.object(OCIService, "resolved_key_file", return_value="/tmp/mock-oci/api.pem"):
+                with patch("app.services.oci_cli.subprocess.run") as run_mock:
+                    run_mock.return_value = SimpleNamespace(
+                        returncode=0,
+                        stdout='{"data":[]}',
+                        stderr="",
+                    )
+                    try:
+                        service.get_instance_details("ocid1.instance.oc1..x")
+                    except RuntimeError as exc:
+                        assert str(exc) == "OCI instance lookup did not return instance data"
+                    else:
+                        raise AssertionError("Expected invalid payload to raise RuntimeError")
+
+
+def test_get_instance_details_raises_when_required_fields_are_missing():
+    service = OCIService(make_settings())
+    with patch("app.services.oci_cli.shutil.which", return_value="/usr/bin/oci"):
+        with patch("app.services.oci_cli.Path.is_file", return_value=True):
+            with patch.object(OCIService, "resolved_key_file", return_value="/tmp/mock-oci/api.pem"):
+                with patch("app.services.oci_cli.subprocess.run") as run_mock:
+                    run_mock.return_value = SimpleNamespace(
+                        returncode=0,
+                        stdout='{"name":"VM C","id":"ocid1.instance.oc1..c"}',
+                        stderr="",
+                    )
+                    try:
+                        service.get_instance_details("ocid1.instance.oc1..c")
+                    except RuntimeError as exc:
+                        assert str(exc) == "OCI instance lookup returned incomplete instance data"
+                    else:
+                        raise AssertionError("Expected incomplete payload to raise RuntimeError")

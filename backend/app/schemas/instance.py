@@ -96,6 +96,17 @@ class InstanceImportCreate(BaseModel):
         return InstanceBase.validate_app_url(value)
 
 
+class InstanceImportUpsertRequest(BaseModel):
+    ocid: str = Field(min_length=20, max_length=255)
+
+    @field_validator("ocid")
+    @classmethod
+    def validate_ocid(cls, value: str) -> str:
+        if not value.startswith("ocid1.instance."):
+            raise ValueError("OCID must start with ocid1.instance.")
+        return value
+
+
 class InstanceRead(AppBaseModel):
     id: str
     name: str
@@ -154,6 +165,12 @@ class InstanceImportPreviewRead(BaseModel):
     compartment_name: str
     oci_created_at: datetime | None
     already_registered: bool
+
+
+class InstanceImportUpsertRead(BaseModel):
+    mode: Literal["updated", "not_registered"]
+    instance: InstanceRead | None = None
+    preview: InstanceImportPreviewRead | None = None
 
 
 class InstanceImportItemRead(BaseModel):

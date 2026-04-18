@@ -49,7 +49,7 @@ describe('InstancesPage', () => {
     beforeEach(async () => {
         apiService = jasmine.createSpyObj<ApiService>('ApiService', [
             'listInstances',
-            'getInstanceImportPreview',
+            'importUpsertInstance',
             'importInstance',
             'updateInstance',
             'startInstance',
@@ -60,7 +60,12 @@ describe('InstancesPage', () => {
             'getImportAllCompartmentsInstancesJob'
         ]);
         apiService.listInstances.and.returnValue(of(listedInstances));
-        apiService.getInstanceImportPreview.and.returnValue(of(importPreview));
+        apiService.importUpsertInstance.and.returnValue(
+            of({
+                mode: 'not_registered',
+                preview: importPreview
+            })
+        );
         apiService.importInstance.and.returnValue(
             of({
                 id: 'instance-2',
@@ -222,7 +227,7 @@ describe('InstancesPage', () => {
     });
 
     it('keeps the import form invalid when ocid is empty', () => {
-        component.form.setValue({ ocid: '', description: '', app_url: '', enabled: true });
+        component.form.setValue({ ocid: '', description: '', enabled: true });
         expect(component.form.invalid).toBeTrue();
         expect(component.canSaveImportedInstance()).toBeFalse();
     });
@@ -230,7 +235,7 @@ describe('InstancesPage', () => {
     it('does not query OCI automatically while the user types the ocid', () => {
         component.form.controls.ocid.setValue(importPreview.ocid);
 
-        expect(apiService.getInstanceImportPreview).not.toHaveBeenCalled();
+        expect(apiService.importUpsertInstance).not.toHaveBeenCalled();
         expect(component.importPreview()).toBeNull();
     });
 
@@ -240,17 +245,40 @@ describe('InstancesPage', () => {
         component.lookupInstancePreview();
         fixture.detectChanges();
 
-        expect(apiService.getInstanceImportPreview).toHaveBeenCalledWith(importPreview.ocid);
+        expect(apiService.importUpsertInstance).toHaveBeenCalledWith({ ocid: importPreview.ocid });
         expect(component.importPreview()).toEqual(importPreview);
         expect(fixture.nativeElement.textContent).toContain('Compartment A');
         expect(fixture.nativeElement.textContent).toContain('129.1.1.1');
     });
 
-    it('blocks save when the preview says the instance is already registered', () => {
-        apiService.getInstanceImportPreview.and.returnValue(
+    it('updates an existing instance immediately when search returns updated mode', () => {
+        apiService.importUpsertInstance.and.returnValue(
             of({
-                ...importPreview,
-                already_registered: true
+                mode: 'updated',
+                instance: {
+                    ...listedInstances[0],
+                    name: 'Teste Atualizado'
+                }
+            })
+        );
+        component.form.controls.ocid.setValue(importPreview.ocid);
+
+        component.lookupInstancePreview();
+
+        expect(component.activeTab()).toBe(0);
+        expect(component.importPreview()).toBeNull();
+        expect(component.instances()[0].name).toBe('Teste Atualizado');
+        expect(component.actionFeedback()).toContain('atualizada automaticamente');
+    });
+
+    it('blocks save when the preview says the instance is already registered', () => {
+        apiService.importUpsertInstance.and.returnValue(
+            of({
+                mode: 'not_registered',
+                preview: {
+                    ...importPreview,
+                    already_registered: true
+                }
             })
         );
         component.form.controls.ocid.setValue(importPreview.ocid);
@@ -271,11 +299,10 @@ describe('InstancesPage', () => {
         expect(component.importPreview()).toBeNull();
     });
 
-    it('imports a new instance with ocid, description, app_url and enabled', () => {
+    it('imports a new instance with ocid, description and enabled', () => {
         component.form.setValue({
             ocid: importPreview.ocid,
             description: 'Importada',
-            app_url: importPreview.app_url || '',
             enabled: false
         });
         component.importPreview.set(importPreview);
@@ -286,7 +313,6 @@ describe('InstancesPage', () => {
         expect(apiService.importInstance).toHaveBeenCalledWith({
             ocid: importPreview.ocid,
             description: 'Importada',
-            app_url: importPreview.app_url,
             enabled: false
         });
         expect(component.activeTab()).toBe(0);
@@ -294,7 +320,7 @@ describe('InstancesPage', () => {
     });
 
     it('shows lookup errors when OCI preview fails', () => {
-        apiService.getInstanceImportPreview.and.returnValue(throwError(() => ({ error: { detail: 'instance_not_found' } })));
+        apiService.importUpsertInstance.and.returnValue(throwError(() => ({ error: { detail: 'instance_not_found' } })));
         component.form.controls.ocid.setValue(importPreview.ocid);
 
         component.lookupInstancePreview();
@@ -656,19 +682,17 @@ describe('InstancesPage', () => {
         expect(component.actionFeedback()).toBe('stop_failed');
     });
 
-    it('disables start/stop/edit/refresh actions while stopping is in progress', () => {
+    it('disables start/stop/refresh actions while stopping is in progress', () => {
         component.instances.set([{ ...listedInstances[0], last_known_state: 'RUNNING' }]);
         component.stoppingIds.set(new Set(['instance-1']));
         fixture.detectChanges();
 
         const startButton = fixture.nativeElement.querySelector('button[aria-label="Ligar"]') as HTMLButtonElement;
         const stopButton = fixture.nativeElement.querySelector('button[aria-label="Desligar"]') as HTMLButtonElement;
-        const editButton = fixture.nativeElement.querySelector('button[aria-label="Editar mapeamento"]') as HTMLButtonElement;
         const refreshButton = fixture.nativeElement.querySelector('button[aria-label="Atualizar status"]') as HTMLButtonElement;
 
         expect(startButton.disabled).toBeTrue();
         expect(stopButton.disabled).toBeTrue();
-        expect(editButton.disabled).toBeTrue();
         expect(refreshButton.disabled).toBeTrue();
     });
 

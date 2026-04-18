@@ -40,6 +40,12 @@ export interface InstanceImportPreviewModel {
     already_registered: boolean;
 }
 
+export interface InstanceImportUpsertResponseModel {
+    mode: 'updated' | 'not_registered';
+    instance?: InstanceModel | null;
+    preview?: InstanceImportPreviewModel | null;
+}
+
 export interface CompartmentModel {
     id: string;
     name: string;

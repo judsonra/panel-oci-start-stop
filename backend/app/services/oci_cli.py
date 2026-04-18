@@ -391,7 +391,11 @@ class OCIService:
             payload = json.loads(result.stdout or "{}")
         except json.JSONDecodeError as exc:
             raise RuntimeError("OCI instance lookup did not return valid JSON") from exc
-        data = payload.get("data") if isinstance(payload, dict) else payload
+        if isinstance(payload, dict):
+            nested_data = payload.get("data")
+            data = nested_data if isinstance(nested_data, dict) else payload
+        else:
+            data = payload
         if not isinstance(data, dict):
             raise RuntimeError("OCI instance lookup did not return instance data")
 

@@ -335,6 +335,59 @@ def test_import_instance_creates_missing_compartment_from_oci_lookup(override_se
     assert compartment.active is True
 
 
+def test_import_instance_upsert_returns_preview_when_ocid_is_not_registered(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+
+    result = service.import_instance_upsert("ocid1.instance.oc1.sa-saopaulo-1.autoa1")
+
+    assert result.mode == "not_registered"
+    assert result.instance is None
+    assert result.preview is not None
+    assert result.preview.ocid == "ocid1.instance.oc1.sa-saopaulo-1.autoa1"
+    assert result.preview.compartment_name == "Compartment A"
+
+
+def test_import_instance_upsert_updates_existing_and_preserves_manual_fields(override_session):
+    service = InstanceService(override_session, fake_oci_service)
+    created = service.create_instance(
+        InstanceCreate(
+            name="Nome Local",
+            ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+            description="manter",
+            enabled=False,
+            app_url="manual.docnix.com.br",
+        )
+    )
+    updated_name = "OCIXDOC-HMG-Cliente Novo"
+    fake_oci_service.instance_details["ocid1.instance.oc1.sa-saopaulo-1.autoa1"] = fake_oci_service.instance_details[
+        "ocid1.instance.oc1.sa-saopaulo-1.autoa1"
+    ].__class__(
+        name=updated_name,
+        ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+        compartment_ocid="ocid1.compartment.oc1..aaaa",
+        vcpu=6.0,
+        memory_gbs=32.0,
+        oci_created_at=fake_oci_service.instance_details["ocid1.instance.oc1.sa-saopaulo-1.autoa1"].oci_created_at,
+    )
+
+    result = service.import_instance_upsert("ocid1.instance.oc1.sa-saopaulo-1.autoa1")
+
+    assert result.mode == "updated"
+    assert result.preview is None
+    assert result.instance is not None
+    assert result.instance.name == updated_name
+    assert result.instance.description == "manter"
+    assert result.instance.enabled is False
+    assert result.instance.vcpu == 6.0
+    assert result.instance.memory_gbs == 32.0
+    assert result.instance.app_url == "cliente-novohmg.docnix.com.br"
+    assert result.instance.environment == "HMG"
+    assert result.instance.customer_name == "cliente-novo"
+    assert result.instance.domain == "docnix.com.br"
+    assert result.instance.name_prefix == "OCIXDOC"
+    assert result.instance.id == created.id
+
+
 def test_import_all_compartment_instances_creates_records_and_enriches_network_fields(override_session):
     CompartmentService(override_session, fake_oci_service).list_and_update()
     service = InstanceService(override_session, fake_oci_service)
@@ -369,6 +422,16 @@ def test_import_all_compartment_instances_creates_records_and_enriches_network_f
 
 def test_import_all_compartment_instances_updates_existing_ocid_and_preserves_local_fields(override_session):
     CompartmentService(override_session, fake_oci_service).list_and_update()
+    fake_oci_service.instances_by_compartment["ocid1.compartment.oc1..aaaa"][0] = fake_oci_service.instances_by_compartment[
+        "ocid1.compartment.oc1..aaaa"
+    ][0].__class__(
+        name="OCIXDOC-HMG-Cliente Sync",
+        ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
+        lifecycle_state="RUNNING",
+        vcpu=2.0,
+        memory_gbs=12.0,
+        oci_created_at=fake_oci_service.instances_by_compartment["ocid1.compartment.oc1..aaaa"][0].oci_created_at,
+    )
     service = InstanceService(override_session, fake_oci_service)
     created = service.create_instance(
         InstanceCreate(
@@ -376,6 +439,11 @@ def test_import_all_compartment_instances_updates_existing_ocid_and_preserves_lo
             ocid="ocid1.instance.oc1.sa-saopaulo-1.autoa1",
             description="manter",
             enabled=False,
+            app_url="manual-lock.docnix.com.br",
+            environment="PRD",
+            customer_name="manual",
+            domain="pmrun.com.br",
+            name_prefix="OCIARQ",
         )
     )
     created.last_known_state = "STOPPED"
@@ -395,6 +463,11 @@ def test_import_all_compartment_instances_updates_existing_ocid_and_preserves_lo
     assert updated.compartment_id is not None
     assert updated.vcpu == 2.0
     assert updated.public_ip == "129.1.1.1"
+    assert updated.app_url == "cliente-synchmg.docnix.com.br"
+    assert updated.environment == "HMG"
+    assert updated.customer_name == "cliente-sync"
+    assert updated.domain == "docnix.com.br"
+    assert updated.name_prefix == "OCIXDOC"
 
 
 def test_get_instance_vnic_route_returns_primary_vnic(override_session):

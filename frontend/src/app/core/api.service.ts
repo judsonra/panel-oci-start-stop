@@ -23,6 +23,7 @@ import {
     ImportAllCompartmentsJobCreateModel,
     ImportAllCompartmentsJobStatusModel,
     InstanceImportPreviewModel,
+    InstanceImportUpsertResponseModel,
     InstanceModel,
     InstanceStatusRefreshModel,
     InstanceVnicModel,
@@ -189,7 +190,11 @@ export class ApiService {
         return this.http.get<InstanceImportPreviewModel>(`${this.baseUrl}/instances/import-preview/${encodeURIComponent(instanceOcid)}`);
     }
 
-    importInstance(payload: { ocid: string; description?: string | null; enabled: boolean; app_url?: string | null }): Observable<InstanceModel> {
+    importUpsertInstance(payload: { ocid: string }): Observable<InstanceImportUpsertResponseModel> {
+        return this.http.post<InstanceImportUpsertResponseModel>(`${this.baseUrl}/instances/import-upsert`, payload);
+    }
+
+    importInstance(payload: { ocid: string; description?: string | null; enabled: boolean }): Observable<InstanceModel> {
         return this.http.post<InstanceModel>(`${this.baseUrl}/instances/import`, payload);
     }
 

@@ -59,6 +59,8 @@ from app.schemas.instance import (
     InstanceCreate,
     InstanceImportCreate,
     InstanceImportPreviewRead,
+    InstanceImportUpsertRead,
+    InstanceImportUpsertRequest,
     InstanceRead,
     InstanceStatusRefreshRead,
     InstanceUpdate,
@@ -663,6 +665,26 @@ def import_instance(
     service: InstanceService = Depends(get_instance_service),
 ) -> InstanceRead:
     return InstanceRead.model_validate(service.import_instance(payload.ocid, payload.description, payload.enabled, payload.app_url))
+
+
+@router.post("/instances/import-upsert", response_model=InstanceImportUpsertRead)
+def import_instance_upsert(
+    payload: InstanceImportUpsertRequest,
+    _: CurrentUser = Depends(require_permission("instances.manage")),
+    service: InstanceService = Depends(get_instance_service),
+) -> InstanceImportUpsertRead:
+    result = service.import_instance_upsert(payload.ocid)
+    if result.mode == "updated":
+        return InstanceImportUpsertRead(
+            mode="updated",
+            instance=InstanceRead.model_validate(result.instance) if result.instance is not None else None,
+            preview=None,
+        )
+    return InstanceImportUpsertRead(
+        mode="not_registered",
+        instance=None,
+        preview=InstanceImportPreviewRead(**asdict(result.preview)) if result.preview is not None else None,
+    )
 
 
 @router.put("/instances/{instance_id}", response_model=InstanceRead)

@@ -119,6 +119,13 @@ class InstanceImportPreview:
 
 
 @dataclass
+class InstanceImportUpsertResult:
+    mode: str
+    instance: Instance | None = None
+    preview: InstanceImportPreview | None = None
+
+
+@dataclass
 class InstanceRoutingData:
     app_url: str | None
     environment: str | None
@@ -226,33 +233,7 @@ class InstanceService:
                 already_registered=True,
             )
 
-        try:
-            details = self.oci_service.get_instance_details(instance_ocid)
-            vnic_id = self.oci_service.get_instance_vnic_id(instance_ocid)
-            vnic_details = self.oci_service.get_vnic_details(vnic_id) if vnic_id else OCIVnicDetails(vnic_id="", public_ip=None, private_ip=None)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-        compartment = self._ensure_compartment_cached(details.compartment_ocid)
-        routing = self.derive_routing_fields(details.name)
-        return InstanceImportPreview(
-            name=details.name,
-            ocid=details.ocid,
-            app_url=routing.app_url,
-            environment=routing.environment,
-            customer_name=routing.customer_name,
-            domain=routing.domain,
-            name_prefix=routing.name_prefix,
-            vcpu=details.vcpu,
-            memory_gbs=details.memory_gbs,
-            vnic_id=vnic_id,
-            public_ip=vnic_details.public_ip,
-            private_ip=vnic_details.private_ip,
-            compartment_ocid=details.compartment_ocid,
-            compartment_name=compartment.name,
-            oci_created_at=details.oci_created_at,
-            already_registered=False,
-        )
+        return self._fetch_import_preview_from_oci(instance_ocid)
 
     def import_instance(self, ocid: str, description: str | None, enabled: bool, app_url: str | None = None) -> Instance:
         if self.instances.get_by_ocid(ocid):
@@ -295,6 +276,42 @@ class InstanceService:
             },
         )
         return created
+
+    def import_instance_upsert(self, ocid: str) -> InstanceImportUpsertResult:
+        preview = self._fetch_import_preview_from_oci(ocid)
+        existing = self.instances.get_by_ocid(ocid)
+        if existing is None:
+            return InstanceImportUpsertResult(mode="not_registered", preview=preview)
+
+        compartment = self._ensure_compartment_cached(preview.compartment_ocid, preview.compartment_name)
+        routing = self._resolve_routing_fields(
+            preview.name,
+            app_url=preview.app_url,
+            environment=preview.environment,
+            customer_name=preview.customer_name,
+            domain=preview.domain,
+            name_prefix=preview.name_prefix,
+        )
+        self._ensure_app_url_unique(routing.app_url, excluding_instance_id=existing.id)
+        updated, _ = self.instances.apply_updates(
+            existing,
+            {
+                "name": preview.name,
+                "compartment_id": compartment.id,
+                "vcpu": preview.vcpu,
+                "memory_gbs": preview.memory_gbs,
+                "vnic_id": preview.vnic_id,
+                "public_ip": preview.public_ip,
+                "private_ip": preview.private_ip,
+                "oci_created_at": preview.oci_created_at,
+                "app_url": routing.app_url,
+                "environment": routing.environment,
+                "customer_name": routing.customer_name,
+                "domain": routing.domain,
+                "name_prefix": routing.name_prefix,
+            },
+        )
+        return InstanceImportUpsertResult(mode="updated", instance=updated)
 
     def update_instance(self, instance_id: str, payload: InstanceUpdate) -> Instance:
         instance = self.get_instance(instance_id)
@@ -1008,17 +1025,9 @@ class InstanceService:
         oci_created_at: datetime | None,
     ) -> str:
         routing = self.derive_routing_fields(name)
-        if routing.app_url:
-            mapped = self.instances.get_by_app_url(routing.app_url)
-            if mapped is not None and mapped.ocid != ocid:
-                routing = InstanceRoutingData(
-                    app_url=None,
-                    environment=routing.environment,
-                    customer_name=routing.customer_name,
-                    domain=routing.domain,
-                    name_prefix=routing.name_prefix,
-                )
         existing = self.instances.get_by_ocid(ocid)
+        excluding_instance_id = existing.id if existing is not None else None
+        self._ensure_app_url_unique(routing.app_url, excluding_instance_id=excluding_instance_id)
         if existing is None:
             self.instances.create(
                 InstanceCreate(
@@ -1061,14 +1070,43 @@ class InstanceService:
                 "public_ip": public_ip,
                 "private_ip": private_ip,
                 "oci_created_at": oci_created_at,
-                "environment": existing.environment or routing.environment,
-                "customer_name": existing.customer_name or routing.customer_name,
-                "domain": existing.domain or routing.domain,
-                "name_prefix": existing.name_prefix or routing.name_prefix,
-                "app_url": existing.app_url or routing.app_url,
+                "environment": routing.environment,
+                "customer_name": routing.customer_name,
+                "domain": routing.domain,
+                "name_prefix": routing.name_prefix,
+                "app_url": routing.app_url,
             },
         )
         return "updated" if changed else "unchanged"
+
+    def _fetch_import_preview_from_oci(self, instance_ocid: str) -> InstanceImportPreview:
+        try:
+            details = self.oci_service.get_instance_details(instance_ocid)
+            vnic_id = self.oci_service.get_instance_vnic_id(instance_ocid)
+            vnic_details = self.oci_service.get_vnic_details(vnic_id) if vnic_id else OCIVnicDetails(vnic_id="", public_ip=None, private_ip=None)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+        compartment = self._ensure_compartment_cached(details.compartment_ocid)
+        routing = self.derive_routing_fields(details.name)
+        return InstanceImportPreview(
+            name=details.name,
+            ocid=details.ocid,
+            app_url=routing.app_url,
+            environment=routing.environment,
+            customer_name=routing.customer_name,
+            domain=routing.domain,
+            name_prefix=routing.name_prefix,
+            vcpu=details.vcpu,
+            memory_gbs=details.memory_gbs,
+            vnic_id=vnic_id,
+            public_ip=vnic_details.public_ip,
+            private_ip=vnic_details.private_ip,
+            compartment_ocid=details.compartment_ocid,
+            compartment_name=compartment.name,
+            oci_created_at=details.oci_created_at,
+            already_registered=False,
+        )
 
     def _prepare_instance_create_payload(self, payload: InstanceCreate) -> InstanceCreate:
         routing = self._resolve_routing_fields(
